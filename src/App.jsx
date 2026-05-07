@@ -543,24 +543,21 @@ const verdictLabel = () => '';
 
           {results && !loading && (
             <div className="rb-results rb-fade">
-              {(() => {
-                const v = verdictMeta(results.overall?.verdict);
-                return (
-{results.overall && (
-  <div className="rb-verdict" style={{ background: PALETTE.surface, borderLeftColor: PALETTE.rule, color: PALETTE.ink }}>
-    {results.overall.contentType && (
-      <div className="rb-verdict-detected" style={{ color: PALETTE.muted }}>
-        Detected as: <strong style={{ color: PALETTE.ink }}>{results.overall.contentType}</strong>
-      </div>
-    )}
-    <div className="rb-verdict-summary" style={{ color: PALETTE.ink, fontSize: 15, lineHeight: 1.65 }}>{results.overall.summary}</div>
-    {(results.overall.readingAge || results.overall.livingExperienceRating) && (
-      <div className="rb-verdict-meta" style={{ color: PALETTE.muted, marginTop: 12, fontSize: 12 }}>
-        {results.overall.readingAge && <div>Reading age: <strong>{results.overall.readingAge}</strong></div>}
-      </div>
-    )}
-  </div>
-)}
+              {results.overall && (
+                <div className="rb-verdict" style={{ background: PALETTE.surface, borderLeftColor: PALETTE.rule, color: PALETTE.ink }}>
+                  {results.overall.contentType && (
+                    <div className="rb-verdict-detected" style={{ color: PALETTE.muted }}>
+                      Detected as: <strong style={{ color: PALETTE.ink }}>{results.overall.contentType}</strong>
+                    </div>
+                  )}
+                  <div className="rb-verdict-summary" style={{ color: PALETTE.ink, fontSize: 15, lineHeight: 1.65 }}>{results.overall.summary}</div>
+                  {results.overall.readingAge && (
+                    <div className="rb-verdict-meta" style={{ color: PALETTE.muted, marginTop: 12, fontSize: 12 }}>
+                      <div>Reading age: <strong>{results.overall.readingAge}</strong></div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {results.issues?.length > 0 && (
                 <div>
