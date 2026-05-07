@@ -9,7 +9,7 @@ const PALETTE = {
   ink:       '#0A3D6E',
   muted:     '#5C6B7A',
   faint:     '#A0ADB8',
-  rule:      '#D8E2DA',
+  rule:      '#D8E2DA', 
   panel:     '#EBF2E8',
   primary:   '#0A3D6E',
   primaryFg: '#FFFFFF',
@@ -155,13 +155,13 @@ export default function App() {
     return                          { dot: PALETTE.note,      bg: '#E5F2EB', label: 'Note'      };
   };
 
-  const verdictMeta = (v) => {
-    if (v === 'works')      return { color: PALETTE.works, bg: '#E5F2EB', border: PALETTE.note,      label: 'Works for living experience' };
-    if (v === 'harmful')    return { color: PALETTE.harm,  bg: '#FCE7DF', border: PALETTE.attention, label: 'Actively harmful' };
-    return                         { color: '#0A3D6E',     bg: '#DEEEF9', border: PALETTE.consider,  label: 'Needs work' };
-  };
+const verdictMeta = () => ({
+  color: PALETTE.ink,
+  bg: PALETTE.surface,
+  border: PALETTE.rule,
+});
 
-  const verdictLabel = (v) => verdictMeta(v).label;
+const verdictLabel = () => '';
 
   const categoryLabel = (cat) => ({
     'cognitive-load':     'cognitive load',
@@ -546,23 +546,21 @@ export default function App() {
               {(() => {
                 const v = verdictMeta(results.overall?.verdict);
                 return (
-                  <div className="rb-verdict" style={{ background: v.bg, borderLeftColor: v.border, color: v.color }}>
-                    {results.overall?.contentType && (
-                      <div className="rb-verdict-detected" style={{ color: v.color }}>
-                        Detected as: <strong>{results.overall.contentType}</strong>
-                      </div>
-                    )}
-                    <div className="rb-verdict-row">
-                      <div className="rb-display rb-verdict-label" style={{ color: v.color }}>{v.label}</div>
-                      <div className="rb-verdict-meta" style={{ color: v.color }}>
-                        <div>Reading age: <strong>{results.overall?.readingAge ?? '—'}</strong></div>
-                        <div>Living experience: <strong>{results.overall?.livingExperienceRating ?? '—'}/10</strong></div>
-                      </div>
-                    </div>
-                    <div className="rb-verdict-summary" style={{ color: v.color }}>{results.overall?.summary}</div>
-                  </div>
-                );
-              })()}
+{results.overall && (
+  <div className="rb-verdict" style={{ background: PALETTE.surface, borderLeftColor: PALETTE.rule, color: PALETTE.ink }}>
+    {results.overall.contentType && (
+      <div className="rb-verdict-detected" style={{ color: PALETTE.muted }}>
+        Detected as: <strong style={{ color: PALETTE.ink }}>{results.overall.contentType}</strong>
+      </div>
+    )}
+    <div className="rb-verdict-summary" style={{ color: PALETTE.ink, fontSize: 15, lineHeight: 1.65 }}>{results.overall.summary}</div>
+    {(results.overall.readingAge || results.overall.livingExperienceRating) && (
+      <div className="rb-verdict-meta" style={{ color: PALETTE.muted, marginTop: 12, fontSize: 12 }}>
+        {results.overall.readingAge && <div>Reading age: <strong>{results.overall.readingAge}</strong></div>}
+      </div>
+    )}
+  </div>
+)}
 
               {results.issues?.length > 0 && (
                 <div>
@@ -584,7 +582,7 @@ export default function App() {
                           <blockquote className="rb-issue-quote" style={{ background: s.bg }}>
                             "{issue.excerpt}"
                           </blockquote>
-                          <div className="rb-issue-problem">{issue.problem}</div>
+                          <div className="rb-issue-problem">{issue.observation || issue.problem}</div>
                           <div className="rb-issue-suggest">
                             <div className="rb-issue-suggest-label">Try instead</div>
                             {issue.suggestion}
