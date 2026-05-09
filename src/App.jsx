@@ -38,6 +38,14 @@ const JURISDICTIONS = {
   },
 };
 
+const CONTEXT_CHIPS = [
+  "I'm drafting this myself",
+  "I'm editing what a colleague drafted",
+  "I'm shipping content my team wrote",
+  "I received this",
+  "I'm reviewing third-party work",
+];
+
 const CHAR_LIMIT = 8000;
 
 const EXAMPLE = `Dear Occupier,
@@ -56,6 +64,7 @@ Revenues Department`;
 // =============================================================================
 export default function App() {
   const [content, setContent] = useState('');
+  const [context, setContext] = useState('');
   const [jurisdiction, setJurisdiction] = useState('UK');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
@@ -95,7 +104,7 @@ export default function App() {
       const response = await fetch('/api/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, jurisdiction }),
+        body: JSON.stringify({ content, jurisdiction, context }),
       });
 
       if (!response.ok) {
@@ -137,6 +146,10 @@ export default function App() {
     setResults(null);
     setError(null);
     setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
+  const toggleChip = (chip) => {
+    setContext((current) => (current === chip ? '' : chip));
   };
 
   const copyRewrite = async () => {
@@ -266,6 +279,39 @@ const verdictLabel = () => '';
     }
 
     .rb-section-title { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.005em; }
+
+    .rb-context {
+      margin-bottom: 14px;
+    }
+    .rb-context-label {
+      display: block; font-size: 12px; color: var(--muted);
+      margin-bottom: 6px; font-style: italic;
+    }
+    .rb-context-input {
+      width: 100%; padding: 10px 14px;
+      border: 1px solid var(--rule); border-radius: 8px;
+      background: var(--surface);
+      font-size: 14px; color: var(--ink); outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .rb-context-input::placeholder { color: var(--faint); }
+    .rb-context-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
+    .rb-chips {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+    }
+    .rb-chip {
+      background: transparent; border: 1px solid var(--rule);
+      color: var(--muted); padding: 5px 12px;
+      border-radius: 999px; font-size: 12px; font-weight: 500;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .rb-chip:hover:not([aria-pressed="true"]) {
+      border-color: var(--primary); color: var(--ink);
+    }
+    .rb-chip[aria-pressed="true"] {
+      background: var(--ink); border-color: var(--ink); color: var(--bg);
+    }
+    .rb-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
     .rb-textarea {
       width: 100%; min-height: 360px; padding: 18px 20px;
@@ -456,6 +502,37 @@ const verdictLabel = () => '';
       <main id="main" className="rb-main">
         <section aria-labelledby="input-heading">
           <h2 id="input-heading" className="rb-display rb-section-title" style={{ marginBottom: 12 }}>Content to review</h2>
+
+          <div className="rb-context">
+            <label htmlFor="context-input" className="rb-context-label">
+              Your role with this content (optional)
+            </label>
+            <input
+              id="context-input"
+              type="text"
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+              placeholder="e.g. I'm editing what our policy team drafted"
+              className="rb-context-input"
+              aria-describedby="context-help"
+            />
+            <div className="rb-chips" role="group" aria-label="Common roles">
+              {CONTEXT_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => toggleChip(chip)}
+                  aria-pressed={context === chip}
+                  className="rb-chip"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+            <div id="context-help" className="rb-sr-only">
+              Telling Rembrandt your role with this content shapes how the review is addressed. If you wrote it, the review is written to you. If you received it, the review is written about the sender.
+            </div>
+          </div>
 
           <label htmlFor="content-input" className="rb-sr-only">Paste the content you want reviewed</label>
           <textarea
