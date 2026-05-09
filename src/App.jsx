@@ -2,22 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
-// White-dominant editorial. Navy ink. Severity dots use the three accent
-// ribbons from the logo: coral, sky blue, sage green.
+// White-dominant editorial. Navy ink. The three accent ribbons from the
+// logo (coral, sky blue, sage green) now appear throughout the UI rather
+// than only on severity dots.
 // =============================================================================
 const PALETTE = {
-  bg:        '#FAFAF6',  // near-white, faint warmth
-  surface:   '#FFFFFF',  // pure white for cards, inputs, chips
-  ink:       '#0A3D6E',  // navy from logo
+  bg:        '#FAFAF6',
+  surface:   '#FFFFFF',
+  ink:       '#0A3D6E',
+  inkDeep:   '#062847',
   muted:     '#5C6B7A',
   faint:     '#A0ADB8',
-  rule:      '#E0DDD3',  // warm pale grey
-  panel:     '#F0EBDD',  // warm cream — subtle accent fills only
+  rule:      '#E0DDD3',
+  panel:     '#F0EBDD',
+  panelDeep: '#E8E0CC',
   primary:   '#0A3D6E',
   primaryFg: '#FFFFFF',
-  attention: '#E5634A',  // logo coral
-  consider:  '#2BA8DC',  // logo sky blue
-  note:      '#6FAA94',  // logo sage green
+  attention: '#E5634A', // logo coral
+  consider:  '#2BA8DC', // logo sky blue
+  note:      '#6FAA94', // logo sage green
   works:     '#3D7A5F',
   harm:      '#B85A3D',
 };
@@ -26,17 +29,33 @@ const JURISDICTIONS = {
   UK: {
     label: 'United Kingdom',
     short: 'UK',
-    frameworks: 'FCA Consumer Duty · ISO 22458 · GDS content standards · WCAG 2.2 AA · Plain English',
+    frameworks: [
+      'FCA Consumer Duty',
+      'ISO 22458',
+      'GDS content standards',
+      'WCAG 2.2 AA',
+      'Plain English',
+    ],
   },
   EU: {
     label: 'European Union',
     short: 'EU',
-    frameworks: 'European Accessibility Act · EN 301 549 · GDPR transparency · plain-language directives',
+    frameworks: [
+      'European Accessibility Act',
+      'EN 301 549',
+      'GDPR transparency',
+      'Plain-language directives',
+    ],
   },
   US: {
     label: 'United States',
     short: 'US',
-    frameworks: 'Plain Writing Act · Section 508 · ADA · state accessibility statutes',
+    frameworks: [
+      'Plain Writing Act',
+      'Section 508',
+      'ADA',
+      'State accessibility statutes',
+    ],
   },
 };
 
@@ -49,7 +68,15 @@ const CONTEXT_CHIPS = [
 ];
 
 const CHAR_LIMIT = 8000;
-const ABOUT_DISMISS_KEY = 'rb_about_dismissed_v1';
+const ABOUT_DISMISS_KEY = 'rb_about_dismissed_v2'; // bumped, so users see new intro once
+
+const SITE = 'https://traumainformedcontent.com';
+
+const NAV_LINKS = [
+  { label: 'What is trauma-informed content?', href: `${SITE}/what-is-trauma-informed-content/` },
+  { label: 'Resources',                         href: `${SITE}/resources/` },
+  { label: 'About',                             href: `${SITE}/about/` },
+];
 
 const EXAMPLE = `Dear Occupier,
 
@@ -75,9 +102,18 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const [aboutDismissed, setAboutDismissed] = useState(false);
+  const [reviewPhase, setReviewPhase] = useState(-1);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const textareaRef = useRef(null);
   const resultsHeadingRef = useRef(null);
+
+  const PHASES = [
+    { label: 'Detecting content type and reader stage', ms: 2000 },
+    { label: 'Mapping cognitive load and trust points', ms: 6000 },
+    { label: `Checking against ${JURISDICTIONS[jurisdiction].short} frameworks`, ms: 5000 },
+    { label: 'Drafting suggested rewrite', ms: 7000 },
+  ];
 
   useEffect(() => {
     const link = document.createElement('link');
@@ -101,6 +137,21 @@ export default function App() {
       setAnnouncement(`Review complete. ${results.issues?.length || 0} issues identified.`);
     }
   }, [results]);
+
+  useEffect(() => {
+    if (!loading) {
+      setReviewPhase(-1);
+      return;
+    }
+    setReviewPhase(0);
+    let cumulative = 0;
+    const timers = PHASES.map((p, i) => {
+      cumulative += p.ms;
+      return setTimeout(() => setReviewPhase(i + 1), cumulative);
+    });
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, jurisdiction]);
 
   const dismissAbout = () => {
     setAboutDismissed(true);
@@ -130,6 +181,13 @@ export default function App() {
       }
 
       const data = await response.json();
+
+      // If the model hit max_tokens, surface a useful message rather than a
+      // raw JSON parser exception further down.
+      if (data.stop_reason === 'max_tokens') {
+        throw new Error('The review came back longer than expected and was cut off. Try a shorter passage, or break the content into sections and review them one at a time.');
+      }
+
       const text = (data.content || [])
         .filter(b => b.type === 'text')
         .map(b => b.text)
@@ -141,10 +199,16 @@ export default function App() {
       if (firstBrace > 0 || lastBrace < cleaned.length - 1) {
         cleaned = cleaned.slice(firstBrace, lastBrace + 1);
       }
-      setResults(JSON.parse(cleaned));
+
+      try {
+        setResults(JSON.parse(cleaned));
+      } catch (parseErr) {
+        // Friendly message for malformed JSON, rather than the parser's words.
+        throw new Error("The review couldn't be processed this time. Try again, or shorten the passage and try once more.");
+      }
     } catch (e) {
       console.error(e);
-      setError(e.message || 'Something went wrong reading that. Try again, or shorten the passage and try once more.');
+      setError(e.message || 'Something went wrong. Please try again.');
       setAnnouncement('Review failed. Please try again.');
     } finally {
       setLoading(false);
@@ -204,12 +268,17 @@ export default function App() {
       --bg: ${PALETTE.bg};
       --surface: ${PALETTE.surface};
       --ink: ${PALETTE.ink};
+      --ink-deep: ${PALETTE.inkDeep};
       --muted: ${PALETTE.muted};
       --faint: ${PALETTE.faint};
       --rule: ${PALETTE.rule};
       --panel: ${PALETTE.panel};
+      --panel-deep: ${PALETTE.panelDeep};
       --primary: ${PALETTE.primary};
       --primary-fg: ${PALETTE.primaryFg};
+      --coral: ${PALETTE.attention};
+      --sky: ${PALETTE.consider};
+      --sage: ${PALETTE.note};
       min-height: 100vh;
       background: var(--bg);
       color: var(--ink);
@@ -231,29 +300,81 @@ export default function App() {
       overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
     }
 
-    /* ---- Header (sticky, contains lens unit) ---- */
+    /* ---- Header ---- */
     .rb-header {
       border-bottom: 1px solid var(--rule);
-      padding: 20px 32px 16px;
-      background: rgba(250, 250, 246, 0.92);
+      background: rgba(250, 250, 246, 0.94);
       position: sticky; top: 0; z-index: 20;
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
     }
-    .rb-header-row {
+    .rb-header-inner {
       max-width: 1280px; margin: 0 auto;
-      display: flex; align-items: flex-start; justify-content: space-between;
-      gap: 24px; flex-wrap: wrap;
+      padding: 18px 32px 14px;
     }
-    .rb-title { font-size: 30px; font-weight: 600; line-height: 1; margin: 0; }
-    .rb-subtitle { font-size: 14px; color: var(--muted); margin-top: 6px; }
+    .rb-header-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 24px;
+    }
+    .rb-brand {
+      display: flex; align-items: center; gap: 14px;
+      text-decoration: none; color: var(--ink);
+    }
+    .rb-brand:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 4px; }
+    .rb-logo {
+      width: 44px; height: 44px;
+      object-fit: contain; flex-shrink: 0;
+    }
+    .rb-brand-text {
+      display: flex; flex-direction: column; line-height: 1.1;
+    }
+    .rb-wordmark {
+      font-family: 'Rethink Sans', sans-serif;
+      font-weight: 700; font-size: 26px;
+      letter-spacing: -0.02em; color: var(--ink);
+    }
+    .rb-tagline {
+      font-size: 13px; color: var(--muted);
+      margin-top: 4px; letter-spacing: 0.005em;
+    }
 
-    .rb-lens-unit {
-      display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
-      max-width: 60%;
+    /* ---- Top nav ---- */
+    .rb-nav {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 14px;
     }
-    @media (max-width: 700px) {
-      .rb-lens-unit { align-items: flex-start; max-width: 100%; }
+    .rb-nav a {
+      color: var(--muted); text-decoration: none;
+      padding: 8px 14px; border-radius: 999px;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .rb-nav a:hover { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
+    .rb-nav a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-nav-toggle {
+      display: none;
+      background: transparent; border: 1px solid var(--rule);
+      color: var(--ink); padding: 8px 14px; border-radius: 999px;
+      font-size: 13px; font-weight: 500;
+    }
+    @media (max-width: 860px) {
+      .rb-nav { display: none; }
+      .rb-nav-toggle { display: inline-block; }
+      .rb-nav.rb-nav-open {
+        display: flex; flex-direction: column; align-items: stretch;
+        position: absolute; top: 72px; right: 16px; left: 16px;
+        background: var(--surface); border: 1px solid var(--rule);
+        padding: 8px; border-radius: 12px;
+        box-shadow: 0 16px 40px rgba(10,61,110,0.12);
+        gap: 0;
+      }
+      .rb-nav.rb-nav-open a { padding: 12px 16px; border-radius: 6px; }
+    }
+
+    /* ---- Lens row ---- */
+    .rb-lens-row {
+      max-width: 1280px; margin: 0 auto;
+      padding: 8px 32px 14px;
+      display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center;
     }
     .rb-jur-group {
       display: inline-flex; gap: 4px;
@@ -261,51 +382,111 @@ export default function App() {
       border-radius: 999px; border: 1px solid var(--rule);
     }
     .rb-jur-btn {
-      padding: 7px 16px; border-radius: 999px; border: none;
+      padding: 7px 18px; border-radius: 999px; border: none;
       background: transparent; color: var(--muted);
-      font-size: 13px; font-weight: 500; letter-spacing: 0.02em;
+      font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
       transition: background 0.15s ease, color 0.15s ease;
     }
     .rb-jur-btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
     .rb-jur-btn:hover:not([aria-pressed="true"]) { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
     .rb-jur-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-    .rb-lens-fws {
-      font-size: 12px; color: var(--muted); font-style: italic;
-      text-align: right; max-width: 460px; line-height: 1.45;
-    }
-    @media (max-width: 700px) { .rb-lens-fws { text-align: left; } }
 
-    /* ---- Optional dismissible "About" notice ---- */
+    .rb-fw-list {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      list-style: none; padding: 0; margin: 0;
+      align-items: center;
+    }
+    .rb-fw-label {
+      font-size: 11px; color: var(--faint); text-transform: uppercase;
+      letter-spacing: 0.12em; font-weight: 600; margin-right: 4px;
+    }
+    .rb-fw {
+      font-size: 12px; color: var(--ink);
+      padding: 4px 10px; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--rule);
+      white-space: nowrap;
+    }
+    .rb-fw[data-tone="coral"] { border-left: 3px solid var(--coral); }
+    .rb-fw[data-tone="sky"]   { border-left: 3px solid var(--sky); }
+    .rb-fw[data-tone="sage"]  { border-left: 3px solid var(--sage); }
+
+    @media (max-width: 700px) {
+      .rb-header-inner { padding: 14px 20px 10px; }
+      .rb-lens-row { padding: 4px 20px 12px; }
+      .rb-wordmark { font-size: 22px; }
+      .rb-tagline { font-size: 12px; }
+      .rb-logo { width: 38px; height: 38px; }
+    }
+
+    /* ---- About / intro section ---- */
     .rb-about {
-      max-width: 1280px; margin: 16px auto 0;
-      padding: 12px 32px;
-      display: flex; gap: 16px; align-items: flex-start;
+      max-width: 1280px; margin: 24px auto 0;
+      padding: 0 32px;
+    }
+    .rb-about-inner {
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 28px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+    .rb-about-inner::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, var(--coral) 0 33%, var(--sky) 33% 66%, var(--sage) 66% 100%);
+    }
+    .rb-about-grid {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 28px;
+    }
+    @media (max-width: 760px) { .rb-about-grid { grid-template-columns: 1fr; gap: 18px; } }
+    .rb-about-block h2 {
+      font-family: 'Rethink Sans', sans-serif;
+      font-size: 13px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--ink); margin: 0 0 10px;
     }
     .rb-about-body {
-      flex: 1; font-size: 14px; color: var(--muted); line-height: 1.6;
+      font-size: 17px; line-height: 1.55; color: var(--ink); margin: 0;
     }
-    .rb-about-body strong { color: var(--ink); font-weight: 600; }
+    .rb-about-body strong { font-weight: 600; }
+    .rb-about-meta {
+      margin-top: 18px; padding-top: 16px;
+      border-top: 1px solid var(--panel-deep);
+      font-size: 13px; color: var(--muted); line-height: 1.55;
+    }
+    .rb-about-meta strong { color: var(--ink); font-weight: 600; }
     .rb-about-close {
-      flex-shrink: 0;
-      background: transparent; border: 1px solid var(--rule);
+      position: absolute; top: 14px; right: 14px;
+      background: transparent; border: 1px solid var(--panel-deep);
       color: var(--muted); padding: 4px 12px; border-radius: 999px;
-      font-size: 12px;
+      font-size: 12px; font-weight: 500;
     }
-    .rb-about-close:hover { color: var(--ink); border-color: var(--ink); }
+    .rb-about-close:hover { color: var(--ink); border-color: var(--ink); background: rgba(10,61,110,0.04); }
+    .rb-about-show {
+      display: inline-block; margin: 8px 0 0;
+      background: transparent; border: none; padding: 0;
+      color: var(--muted); font-size: 13px;
+      text-decoration: underline; text-underline-offset: 3px;
+    }
+    .rb-about-show:hover { color: var(--ink); }
 
     /* ---- Main grid ---- */
     .rb-main {
       max-width: 1280px; margin: 0 auto;
-      padding: 24px 32px 40px;
+      padding: 28px 32px 48px;
       display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px;
     }
     @media (max-width: 900px) {
-      .rb-main { grid-template-columns: 1fr; gap: 24px; }
-      .rb-header { padding: 16px 20px 14px; }
-      .rb-about, .rb-main { padding-left: 20px; padding-right: 20px; }
+      .rb-main { grid-template-columns: 1fr; gap: 24px; padding: 24px 20px 36px; }
+      .rb-about { padding: 0 20px; }
+      .rb-about-inner { padding: 22px 20px; }
     }
 
-    .rb-section-title { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.005em; }
+    .rb-section-title {
+      font-family: 'Rethink Sans', sans-serif;
+      font-size: 22px; font-weight: 600; margin: 0 0 14px;
+      letter-spacing: -0.01em;
+    }
 
     /* ---- Context section ---- */
     .rb-context { margin-bottom: 14px; }
@@ -323,9 +504,7 @@ export default function App() {
     .rb-context-input::placeholder { color: var(--faint); }
     .rb-context-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
 
-    .rb-chips {
-      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
-    }
+    .rb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .rb-chip {
       background: var(--surface); border: 1px solid var(--rule);
       color: var(--ink); padding: 6px 14px;
@@ -341,9 +520,9 @@ export default function App() {
     }
     .rb-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-    /* ---- Textarea ---- */
+    /* ---- Textarea (height reduced from 320 to 240) ---- */
     .rb-textarea {
-      width: 100%; min-height: 320px; padding: 18px 20px;
+      width: 100%; min-height: 240px; padding: 18px 20px;
       border: 1px solid var(--rule); border-radius: 8px;
       background: var(--surface);
       font-size: 15px; line-height: 1.65; color: var(--ink);
@@ -352,13 +531,14 @@ export default function App() {
     }
     .rb-textarea::placeholder { color: var(--faint); }
     .rb-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
-    .rb-textarea[aria-invalid="true"] { border-color: ${PALETTE.attention}; }
+    .rb-textarea[aria-invalid="true"] { border-color: var(--coral); }
 
     .rb-meta-row {
       display: flex; justify-content: space-between; align-items: center;
       margin-top: 8px; font-size: 12px; color: var(--muted);
+      flex-wrap: wrap; gap: 8px;
     }
-    .rb-meta-row .rb-over { color: ${PALETTE.attention}; font-weight: 500; }
+    .rb-meta-row .rb-over { color: var(--coral); font-weight: 500; }
     .rb-link-btn {
       background: none; border: none; padding: 0;
       color: var(--muted); font-size: 12px;
@@ -367,45 +547,86 @@ export default function App() {
     .rb-link-btn:hover { color: var(--ink); }
     .rb-link-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
 
-    /* ---- Sticky Review action bar ---- */
-    .rb-actions {
-      position: sticky; bottom: 16px;
-      margin-top: 16px; z-index: 5;
-    }
+    /* ---- Review action — no longer sticky, sits below meta row ---- */
+    .rb-actions { margin-top: 18px; }
     .rb-primary-btn {
       width: 100%;
-      padding: 14px 20px; border: none; border-radius: 8px;
+      padding: 16px 20px; border: none; border-radius: 8px;
       background: var(--ink); color: var(--surface);
-      font-size: 15px; font-weight: 500; letter-spacing: 0.005em;
+      font-size: 15px; font-weight: 600; letter-spacing: 0.005em;
       box-shadow: 0 6px 20px rgba(10, 61, 110, 0.18);
       transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
     }
-    .rb-primary-btn:hover:not(:disabled) { background: #062847; }
+    .rb-primary-btn:hover:not(:disabled) { background: var(--ink-deep); }
     .rb-primary-btn:active:not(:disabled) { transform: translateY(1px); }
     .rb-primary-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-    /* ---- Review states (empty, loading, error) ---- */
+    /* ---- Review states ---- */
     .rb-empty, .rb-loading, .rb-error-card {
-      background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
-      padding: 36px 24px; min-height: 320px;
+      background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+      padding: 36px 28px; min-height: 320px;
       display: flex; align-items: center; justify-content: center;
+      position: relative; overflow: hidden;
     }
-    .rb-empty-inner, .rb-loading-inner { max-width: 380px; text-align: center; }
-    .rb-empty-quote { font-size: 18px; font-style: italic; color: var(--ink); margin-bottom: 16px; line-height: 1.5; }
-    .rb-empty-body { font-size: 14px; color: var(--muted); line-height: 1.6; }
+    .rb-empty {
+      background:
+        radial-gradient(circle at 90% -10%, rgba(43,168,220,0.08), transparent 50%),
+        radial-gradient(circle at -10% 110%, rgba(229,99,74,0.07), transparent 50%),
+        var(--surface);
+    }
+    .rb-empty-inner { max-width: 420px; text-align: center; }
+    .rb-empty-tag {
+      display: inline-block;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--muted);
+      padding: 4px 12px; border-radius: 999px;
+      background: var(--panel); border: 1px solid var(--panel-deep);
+      margin-bottom: 22px;
+    }
+    .rb-empty-headline {
+      font-family: 'Rethink Sans', sans-serif;
+      font-size: 18px; font-weight: 500; font-style: italic;
+      color: var(--ink); margin: 0 0 14px;
+      line-height: 1.45; letter-spacing: -0.005em;
+    }
+    .rb-empty-body { font-size: 14px; color: var(--muted); line-height: 1.6; margin: 0; }
+
+    /* ---- Phased loading list ---- */
+    .rb-loading-inner { max-width: 320px; }
+    .rb-loading-title {
+      font-family: 'Rethink Sans', sans-serif;
+      font-size: 15px; font-style: italic; margin-bottom: 18px;
+      text-align: center; color: var(--ink);
+    }
+    .rb-phases {
+      list-style: none; padding: 0; margin: 0;
+      font-size: 13px; line-height: 1.8;
+      text-align: left;
+    }
+    .rb-phase {
+      display: flex; align-items: center; gap: 10px;
+      transition: opacity 0.3s ease, color 0.3s ease, font-weight 0.3s ease;
+    }
+    .rb-phase-marker {
+      width: 14px; display: inline-block; text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .rb-phase-done    { color: var(--muted); opacity: 1; }
+    .rb-phase-current { color: var(--ink);   opacity: 1; font-weight: 600; }
+    .rb-phase-pending { color: var(--faint); opacity: 0.55; }
 
     .rb-error-card {
-      background: #FCEAE3; border-color: ${PALETTE.attention};
+      background: #FCEAE3; border-color: var(--coral);
       color: ${PALETTE.harm}; padding: 18px 22px;
       min-height: auto; font-size: 14px; line-height: 1.55;
       align-items: flex-start; justify-content: flex-start;
     }
 
-    /* ---- Review results (sticky mini-nav + sections) ---- */
+    /* ---- Review results ---- */
     .rb-results { display: flex; flex-direction: column; gap: 22px; }
 
     .rb-results-nav {
-      position: sticky; top: 88px; z-index: 4;
+      position: sticky; top: 134px; z-index: 4;
       display: flex; flex-wrap: wrap; gap: 4px;
       padding: 8px 0;
       background: var(--bg);
@@ -413,7 +634,7 @@ export default function App() {
       margin-bottom: 4px;
       font-size: 13px;
     }
-    @media (max-width: 900px) { .rb-results-nav { top: 110px; } }
+    @media (max-width: 900px) { .rb-results-nav { top: 154px; } }
     .rb-results-nav a {
       color: var(--muted); text-decoration: none;
       padding: 5px 12px; border-radius: 999px;
@@ -421,38 +642,41 @@ export default function App() {
     }
     .rb-results-nav a:hover { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
     .rb-results-nav a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-    .rb-results-nav .rb-nav-count {
-      display: inline-block; margin-left: 4px; opacity: 0.6;
-      font-variant-numeric: tabular-nums;
-    }
+    .rb-results-nav .rb-nav-count { display: inline-block; margin-left: 4px; opacity: 0.6; font-variant-numeric: tabular-nums; }
 
-    .rb-anchor { scroll-margin-top: 140px; }
+    .rb-anchor { scroll-margin-top: 200px; }
 
     .rb-verdict {
-      padding: 20px 22px; border-radius: 4px 8px 8px 4px;
-      border-left: 4px solid var(--rule);
+      padding: 22px 24px; border-radius: 4px 12px 12px 4px;
+      border-left: 4px solid var(--ink);
       background: var(--surface);
+      box-shadow: 0 1px 0 var(--rule);
     }
     .rb-verdict-detected {
       font-size: 13px; font-style: italic; color: var(--muted);
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .rb-verdict-detected strong { font-weight: 600; font-style: normal; color: var(--ink); }
-    .rb-verdict-summary { font-size: 15px; line-height: 1.65; color: var(--ink); }
+    .rb-verdict-summary { font-size: 16px; line-height: 1.65; color: var(--ink); }
     .rb-verdict-meta {
-      display: flex; gap: 20px; font-size: 12px; color: var(--muted);
-      margin-top: 12px;
+      display: flex; gap: 20px; font-size: 13px; color: var(--muted);
+      margin-top: 14px;
     }
     .rb-verdict-meta strong { font-weight: 600; color: var(--ink); }
 
-    .rb-subhead { font-size: 16px; font-weight: 600; margin: 0 0 4px; color: var(--ink); }
+    .rb-subhead {
+      font-family: 'Rethink Sans', sans-serif;
+      font-size: 17px; font-weight: 600; margin: 0 0 4px; color: var(--ink);
+    }
     .rb-subhead-note { font-size: 12px; color: var(--muted); margin-bottom: 12px; font-style: italic; }
 
     /* ---- Issue cards ---- */
     .rb-issue {
-      background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
-      padding: 16px 18px;
+      background: var(--surface); border: 1px solid var(--rule); border-radius: 10px;
+      padding: 18px 20px;
+      transition: border-color 0.15s ease;
     }
+    .rb-issue:hover { border-color: var(--panel-deep); }
     .rb-issue-head {
       display: flex; justify-content: space-between; align-items: center;
       gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
@@ -464,56 +688,84 @@ export default function App() {
     .rb-issue-sev .rb-dot { width: 8px; height: 8px; border-radius: 50%; }
     .rb-issue-cat { font-size: 11px; color: var(--faint); font-style: italic; }
     .rb-issue-quote {
-      padding: 10px 14px; border-radius: 6px;
-      font-size: 14px; line-height: 1.5; font-style: italic;
+      padding: 12px 16px; border-radius: 6px;
+      font-size: 14px; line-height: 1.55; font-style: italic;
       margin-bottom: 12px;
     }
-    .rb-issue-problem { font-size: 14px; line-height: 1.6; margin-bottom: 12px; color: var(--ink); }
+    .rb-issue-problem { font-size: 14px; line-height: 1.65; margin-bottom: 12px; color: var(--ink); }
     .rb-issue-suggest {
-      padding: 12px 14px; background: var(--panel);
-      border-radius: 6px; border-left: 3px solid var(--primary);
-      font-size: 14px; line-height: 1.55; color: var(--ink);
+      padding: 14px 16px; background: var(--panel);
+      border-radius: 6px; border-left: 3px solid var(--ink);
+      font-size: 14px; line-height: 1.6; color: var(--ink);
     }
     .rb-issue-suggest-label {
       font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--primary);
+      text-transform: uppercase; color: var(--ink);
       margin-bottom: 4px;
     }
 
     /* ---- Flags ---- */
     .rb-flag {
-      background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
-      padding: 12px 16px;
+      background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+      padding: 14px 18px;
     }
-    .rb-flag-fw { font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
-    .rb-flag-text { font-size: 13px; line-height: 1.55; color: var(--ink); }
+    .rb-flag-fw { font-size: 12px; font-weight: 700; color: var(--ink); margin-bottom: 4px; letter-spacing: 0.02em; }
+    .rb-flag-text { font-size: 13px; line-height: 1.6; color: var(--ink); }
 
     /* ---- Rewrite ---- */
     .rb-rewrite-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
     .rb-copy-btn {
-      background: transparent; border: 1px solid var(--primary); color: var(--primary);
-      padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
+      background: transparent; border: 1px solid var(--ink); color: var(--ink);
+      padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
       transition: background 0.15s ease, color 0.15s ease;
     }
-    .rb-copy-btn:hover { background: var(--primary); color: var(--primary-fg); }
+    .rb-copy-btn:hover { background: var(--ink); color: var(--surface); }
     .rb-copy-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .rb-rewrite-body {
-      background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
-      padding: 20px 22px;
+      background: var(--surface); border: 1px solid var(--rule); border-radius: 10px;
+      padding: 22px 24px;
       font-size: 15px; line-height: 1.7; white-space: pre-wrap;
       font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     /* ---- Footer ---- */
     .rb-footer {
-      padding: 24px 32px 36px; border-top: 1px solid var(--rule);
-      margin-top: 32px; background: var(--panel);
+      padding: 36px 32px 44px; border-top: 1px solid var(--rule);
+      margin-top: 36px; background: var(--panel);
+      position: relative;
+    }
+    .rb-footer::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, var(--coral) 0 33%, var(--sky) 33% 66%, var(--sage) 66% 100%);
     }
     .rb-footer-inner {
       max-width: 1280px; margin: 0 auto;
-      font-size: 13px; color: var(--muted); line-height: 1.6;
+      display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      gap: 28px;
     }
-    @media (max-width: 900px) { .rb-footer { padding: 24px 20px 36px; } }
+    @media (max-width: 760px) { .rb-footer-inner { grid-template-columns: 1fr; } .rb-footer { padding: 28px 20px 36px; } }
+    .rb-footer-disclaimer { font-size: 13px; color: var(--muted); line-height: 1.65; }
+    .rb-footer-disclaimer p { margin: 0 0 10px; }
+    .rb-footer-disclaimer strong { color: var(--ink); font-weight: 600; }
+    .rb-footer-links {
+      display: flex; flex-direction: column; gap: 8px;
+      font-size: 13px;
+    }
+    .rb-footer-links a {
+      color: var(--muted); text-decoration: none;
+      padding: 4px 0;
+    }
+    .rb-footer-links a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+    .rb-footer-links-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--ink); margin-bottom: 4px;
+    }
+    .rb-copyright {
+      grid-column: 1 / -1;
+      padding-top: 20px; margin-top: 12px;
+      border-top: 1px solid var(--panel-deep);
+      font-size: 12px; color: var(--muted); line-height: 1.6;
+    }
 
     /* ---- Animation ---- */
     .rb-fade { animation: rb-fade 0.4s ease; }
@@ -523,6 +775,10 @@ export default function App() {
     .rb-dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes rb-blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
   `;
+
+  // Map each framework to one of the three ribbon colours, distributed
+  // sensibly so the row reads as a colour-coded list rather than random.
+  const frameworkTone = (idx) => ['coral', 'sky', 'sage', 'coral', 'sky'][idx % 5];
 
   return (
     <div className="rb-root">
@@ -535,51 +791,100 @@ export default function App() {
       </div>
 
       <header className="rb-header">
-        <div className="rb-header-row">
-          <div>
-            <h1 className="rb-display rb-title">Rembrandt</h1>
-            <div className="rb-subtitle">Trauma-informed content review</div>
-          </div>
-          <div className="rb-lens-unit">
-            <div className="rb-jur-group" role="group" aria-label="Jurisdiction lens">
-              {Object.entries(JURISDICTIONS).map(([key, { short, label }]) => (
-                <button
-                  key={key}
-                  onClick={() => setJurisdiction(key)}
-                  aria-pressed={jurisdiction === key}
-                  aria-label={`${label} lens`}
-                  className="rb-jur-btn"
-                >
-                  {short}
-                </button>
+        <div className="rb-header-inner">
+          <div className="rb-header-row">
+            <a href="/" className="rb-brand" aria-label="Rembrandt Editor — home">
+              <img src="/logo.png" alt="" className="rb-logo" aria-hidden="true" />
+              <span className="rb-brand-text">
+                <span className="rb-wordmark">Rembrandt Editor</span>
+                <span className="rb-tagline">Trauma-informed content review</span>
+              </span>
+            </a>
+
+            <button
+              type="button"
+              className="rb-nav-toggle"
+              aria-expanded={mobileNavOpen}
+              aria-controls="rb-nav"
+              onClick={() => setMobileNavOpen(o => !o)}
+            >
+              {mobileNavOpen ? 'Close' : 'Menu'}
+            </button>
+
+            <nav
+              id="rb-nav"
+              className={`rb-nav${mobileNavOpen ? ' rb-nav-open' : ''}`}
+              aria-label="Main"
+            >
+              {NAV_LINKS.map((link) => (
+                <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer">
+                  {link.label}
+                </a>
               ))}
-            </div>
-            <div className="rb-lens-fws" aria-live="polite">
-              {JURISDICTIONS[jurisdiction].frameworks}
-            </div>
+            </nav>
           </div>
+        </div>
+
+        <div className="rb-lens-row">
+          <div className="rb-jur-group" role="group" aria-label="Jurisdiction lens">
+            {Object.entries(JURISDICTIONS).map(([key, { short, label }]) => (
+              <button
+                key={key}
+                onClick={() => setJurisdiction(key)}
+                aria-pressed={jurisdiction === key}
+                aria-label={`${label} lens`}
+                className="rb-jur-btn"
+              >
+                {short}
+              </button>
+            ))}
+          </div>
+          <ul className="rb-fw-list" aria-label="Frameworks applied" aria-live="polite">
+            <li className="rb-fw-label">Frameworks</li>
+            {JURISDICTIONS[jurisdiction].frameworks.map((fw, i) => (
+              <li key={fw} className="rb-fw" data-tone={frameworkTone(i)}>{fw}</li>
+            ))}
+          </ul>
         </div>
       </header>
 
       {!aboutDismissed && (
-        <div className="rb-about" role="region" aria-label="About Rembrandt">
-          <div className="rb-about-body">
-            <strong>What this is.</strong> Rembrandt flags content that is likely to fail readers in living experience — people moving through grief, fear, pain, exhaustion or the ordinary cognitive compromise of a difficult day. <strong>What this isn't.</strong> A compliance audit, a legal adjudicator, or a substitute for testing with the people the content is for.
+        <section className="rb-about" aria-label="About Rembrandt Editor">
+          <div className="rb-about-inner">
+            <button
+              type="button"
+              onClick={dismissAbout}
+              aria-label="Dismiss this notice"
+              className="rb-about-close"
+            >
+              Got it
+            </button>
+
+            <div className="rb-about-grid">
+              <div className="rb-about-block">
+                <h2>What this is</h2>
+                <p className="rb-about-body">
+                  Rembrandt Editor flags content that is likely to fail readers in <strong>living experience</strong> — people moving through grief, fear, pain, exhaustion, or the ordinary cognitive compromise of a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where you publish.
+                </p>
+              </div>
+              <div className="rb-about-block">
+                <h2>What this isn't</h2>
+                <p className="rb-about-body">
+                  A compliance audit, a legal adjudicator, or a substitute for testing with the people the content is for. It surfaces plausible concerns. You decide what to do about them.
+                </p>
+              </div>
+            </div>
+
+            <div className="rb-about-meta">
+              Built by <strong>Adrie van der Luijt</strong> — content designer with nearly four decades in journalism, government digital services, and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of UK forces), Cancer Research UK, Universal Credit, and Cabinet Office pandemic emergency services.
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={dismissAbout}
-            aria-label="Dismiss this notice"
-            className="rb-about-close"
-          >
-            Got it
-          </button>
-        </div>
+        </section>
       )}
 
       <main id="main" className="rb-main">
         <section aria-labelledby="input-heading">
-          <h2 id="input-heading" className="rb-display rb-section-title" style={{ marginBottom: 12 }}>Content to review</h2>
+          <h2 id="input-heading" className="rb-display rb-section-title">Content to review</h2>
 
           <div className="rb-context">
             <label htmlFor="context-input" className="rb-context-label">
@@ -659,6 +964,16 @@ export default function App() {
               )}
             </button>
           </div>
+
+          {aboutDismissed && (
+            <button
+              type="button"
+              onClick={() => setAboutDismissed(false)}
+              className="rb-about-show"
+            >
+              About Rembrandt Editor
+            </button>
+          )}
         </section>
 
         <section aria-labelledby="results-heading" aria-busy={loading}>
@@ -667,7 +982,6 @@ export default function App() {
             ref={resultsHeadingRef}
             tabIndex={-1}
             className="rb-display rb-section-title"
-            style={{ marginBottom: 12 }}
           >
             Review
           </h2>
@@ -675,12 +989,13 @@ export default function App() {
           {!results && !loading && !error && (
             <div className="rb-empty">
               <div className="rb-empty-inner">
-                <div className="rb-display rb-empty-quote">
+                <span className="rb-empty-tag">Your review will appear here</span>
+                <p className="rb-empty-headline">
                   "We design for full capacity. Life rarely provides it."
-                </div>
-                <div className="rb-empty-body">
-                  Rembrandt reads for the person who is tired, frightened, grieving, in pain, or simply having a difficult day. That is most readers, most of the time.
-                </div>
+                </p>
+                <p className="rb-empty-body">
+                  Rembrandt Editor reads for the person who is tired, frightened, grieving, in pain, or simply having a difficult day. That is most readers, most of the time.
+                </p>
               </div>
             </div>
           )}
@@ -688,8 +1003,22 @@ export default function App() {
           {loading && (
             <div className="rb-loading rb-fade">
               <div className="rb-loading-inner">
-                <div className="rb-display" style={{ fontSize: 18, fontStyle: 'italic', marginBottom: 10 }}>Reading carefully</div>
-                <div style={{ fontSize: 12, color: PALETTE.muted }}>This usually takes 10 to 20 seconds.</div>
+                <div className="rb-display rb-loading-title">Reading carefully</div>
+                <ul className="rb-phases" aria-label="Review progress">
+                  {PHASES.map((p, i) => {
+                    const done = i < reviewPhase;
+                    const current = i === reviewPhase;
+                    const cls = done ? 'rb-phase rb-phase-done' : current ? 'rb-phase rb-phase-current' : 'rb-phase rb-phase-pending';
+                    return (
+                      <li key={i} className={cls}>
+                        <span className="rb-phase-marker" aria-hidden="true">
+                          {done ? '✓' : current ? '·' : '·'}
+                        </span>
+                        {p.label}
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             </div>
           )}
@@ -796,12 +1125,27 @@ export default function App() {
 
       <footer className="rb-footer">
         <div className="rb-footer-inner">
-          <p style={{ margin: 0 }}>
-            Rembrandt reviews content through a trauma-informed lens. It is not a compliance tool, a legal adjudicator or a replacement for testing with the people the content is for. It flags plausible concerns. You decide what to do about them.
-          </p>
-          <p style={{ margin: '8px 0 0' }}>
-            v1 · Trauma-Informed Content Consulting
-          </p>
+          <div className="rb-footer-disclaimer">
+            <p>
+              <strong>Rembrandt Editor</strong> reviews content through a trauma-informed lens. It is not a compliance tool, a legal adjudicator, or a replacement for testing with the people the content is for. It flags plausible concerns. You decide what to do about them.
+            </p>
+            <p>
+              Built and maintained by Trauma-Informed Content Consulting.
+            </p>
+          </div>
+
+          <div className="rb-footer-links">
+            <div className="rb-footer-links-label">More from us</div>
+            <a href={`${SITE}/`} target="_blank" rel="noopener noreferrer">traumainformedcontent.com</a>
+            <a href={`${SITE}/what-is-trauma-informed-content/`} target="_blank" rel="noopener noreferrer">What is trauma-informed content?</a>
+            <a href={`${SITE}/resources/`} target="_blank" rel="noopener noreferrer">Resources</a>
+            <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer">About</a>
+            <a href={`${SITE}/contact/`} target="_blank" rel="noopener noreferrer">Contact</a>
+          </div>
+
+          <div className="rb-copyright">
+            © 2026 Trauma-Informed Content Consulting, a trading name of Bankside Communications Limited. All rights reserved.
+          </div>
         </div>
       </footer>
     </div>
