@@ -75,9 +75,22 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const [aboutDismissed, setAboutDismissed] = useState(false);
+  const [reviewPhase, setReviewPhase] = useState(-1);
 
   const textareaRef = useRef(null);
   const resultsHeadingRef = useRef(null);
+
+  // Phases shown during the wait. Durations are estimates; they don't have
+  // to match the API call exactly. They sum to ~20s, which matches observed
+  // total time. If the response arrives early, results render immediately
+  // and the indicator unmounts. If it arrives late, the last phase remains
+  // highlighted until the response lands.
+  const PHASES = [
+    { label: 'Detecting content type and reader stage', ms: 2000 },
+    { label: 'Mapping cognitive load and trust points', ms: 6000 },
+    { label: `Checking against ${JURISDICTIONS[jurisdiction].short} frameworks`, ms: 5000 },
+    { label: 'Drafting suggested rewrite', ms: 7000 },
+  ];
 
   useEffect(() => {
     const link = document.createElement('link');
@@ -101,6 +114,22 @@ export default function App() {
       setAnnouncement(`Review complete. ${results.issues?.length || 0} issues identified.`);
     }
   }, [results]);
+
+  // Tick the phase indicator forward while loading. Reset when loading ends.
+  useEffect(() => {
+    if (!loading) {
+      setReviewPhase(-1);
+      return;
+    }
+    setReviewPhase(0);
+    let cumulative = 0;
+    const timers = PHASES.map((p, i) => {
+      cumulative += p.ms;
+      return setTimeout(() => setReviewPhase(i + 1), cumulative);
+    });
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, jurisdiction]);
 
   const dismissAbout = () => {
     setAboutDismissed(true);
@@ -393,6 +422,24 @@ export default function App() {
     .rb-empty-inner, .rb-loading-inner { max-width: 380px; text-align: center; }
     .rb-empty-quote { font-size: 18px; font-style: italic; color: var(--ink); margin-bottom: 16px; line-height: 1.5; }
     .rb-empty-body { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ---- Phased loading list ---- */
+    .rb-phases {
+      list-style: none; padding: 0; margin: 0;
+      font-size: 13px; line-height: 1.8;
+      text-align: left;
+    }
+    .rb-phase {
+      display: flex; align-items: center; gap: 10px;
+      transition: opacity 0.3s ease, color 0.3s ease, font-weight 0.3s ease;
+    }
+    .rb-phase-marker {
+      width: 14px; display: inline-block; text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .rb-phase-done    { color: ${PALETTE.muted}; opacity: 1; }
+    .rb-phase-current { color: ${PALETTE.ink};   opacity: 1; font-weight: 600; }
+    .rb-phase-pending { color: ${PALETTE.faint}; opacity: 0.55; }
 
     .rb-error-card {
       background: #FCEAE3; border-color: ${PALETTE.attention};
@@ -687,9 +734,28 @@ export default function App() {
 
           {loading && (
             <div className="rb-loading rb-fade">
-              <div className="rb-loading-inner">
-                <div className="rb-display" style={{ fontSize: 18, fontStyle: 'italic', marginBottom: 10 }}>Reading carefully</div>
-                <div style={{ fontSize: 12, color: PALETTE.muted }}>This usually takes 10 to 20 seconds.</div>
+              <div className="rb-loading-inner" style={{ maxWidth: 320 }}>
+                <div
+                  className="rb-display"
+                  style={{ fontSize: 16, fontStyle: 'italic', marginBottom: 18 }}
+                >
+                  Reading carefully
+                </div>
+                <ul className="rb-phases" aria-label="Review progress">
+                  {PHASES.map((p, i) => {
+                    const done = i < reviewPhase;
+                    const current = i === reviewPhase;
+                    const cls = done ? 'rb-phase rb-phase-done' : current ? 'rb-phase rb-phase-current' : 'rb-phase rb-phase-pending';
+                    return (
+                      <li key={i} className={cls}>
+                        <span className="rb-phase-marker" aria-hidden="true">
+                          {done ? '✓' : current ? '·' : '·'}
+                        </span>
+                        {p.label}
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             </div>
           )}
