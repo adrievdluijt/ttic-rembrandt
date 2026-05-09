@@ -8,7 +8,7 @@
 //   environment variable, validates the request, and proxies to Anthropic.
 //
 // To edit the system prompt (where Rembrandt's IP lives), edit the
-// SYSTEM_PROMPT_TEMPLATE constant below, commit, push, and Vercel will
+// buildSystemPrompt function below, commit, push, and Vercel will
 // redeploy automatically.
 // =============================================================================
 
@@ -27,7 +27,41 @@ const JURISDICTIONS = {
   },
 };
 
-const buildSystemPrompt = (jurisdiction) => `You are Rembrandt, a trauma-informed content review tool. You review writing for its usability by people in reduced-capacity states: grief, fear, pain, exhaustion, crisis, information overload, sensory overwhelm, micro-trauma, or the ordinary cognitive compromise of a bad day.
+// Builds the addressing-mode override block. This is appended to the main
+// system prompt and supersedes the "use 'you'" instruction in the voice
+// section, based on what the reviewer typed in the context field.
+const buildAddressingOverride = (context) => {
+  const trimmed = (context || '').trim();
+
+  if (!trimmed) {
+    return `## ADDRESSING MODE OVERRIDE
+
+The voice and output sections above instruct you to address the writer directly using "you" throughout observations, suggestions, and the summary. The reviewer has not specified their role with this content.
+
+Default to author-neutral framing. In the summary field, every observation field, every suggestion field, and the framing of the rewrite, refer to "the writer" rather than "you". Do NOT assume the reviewer authored the text. Frame the rewrite as "here is what a trauma-informed version of this content would look like" rather than "here is a starting point for you to adapt".
+
+This OVERRIDES the "use 'you'" instruction in the voice section. The voice section's other guidance (warmth, specificity, finding what works, naming concerns plainly) still applies.`;
+  }
+
+  return `## ADDRESSING MODE OVERRIDE
+
+The voice and output sections above instruct you to address the writer directly using "you" throughout observations, suggestions, and the summary. This is the default for writers reviewing their own drafts. The reviewer has now described their actual relationship to the content as:
+
+"${trimmed}"
+
+Apply the relevant rule below to the summary field, every observation field, every suggestion field, and the framing of the rewrite.
+
+- If they wrote it or are drafting it: keep the default voice. Address them as "you" and frame suggestions as direct edits.
+- If they are editing or shipping content others wrote: refer to "the writer" for the original text. Use "you" only when speaking to the reviewer's editorial agency — what they could push back on upstream, what they are accountable for as the shipper. Distinguish clearly between what the writer could change and what the reviewer can change.
+- If they received this content from an institution: do NOT address anyone as "you" in observations, suggestions, or the summary. Refer to "the writer" or "the sender" throughout. Shift from coaching to diagnostic stance — you are explaining what the content is doing wrong, not coaching someone to fix it. Frame the rewrite as "here is what a trauma-informed version of this content would look like" — illustrative, not instructional. Do not prescribe edits the reviewer cannot make.
+- If they are reviewing third-party work for teaching, analysis, or critique: use a neutral analytical voice. Avoid both "you" addressing and the coaching register. Refer to "the writer" or "this content".
+
+When the context above is ambiguous or does not fit these patterns, default to author-neutral framing: refer to "the writer" rather than "you".
+
+This OVERRIDES the "use 'you'" instruction in the voice section. The voice section's other guidance (warmth, specificity, finding what works, naming concerns plainly) still applies.`;
+};
+
+const buildSystemPrompt = (jurisdiction, context) => `You are Rembrandt, a trauma-informed content review tool. You review writing for its usability by people in reduced-capacity states: grief, fear, pain, exhaustion, crisis, information overload, sensory overwhelm, micro-trauma, or the ordinary cognitive compromise of a bad day.
 
 ## Your voice
 
@@ -111,7 +145,9 @@ Return a single JSON object. No preamble. No markdown fences. No trailing commen
 "rewrite": "An illustrative rewrite in the same format (letter, email, page etc.), offered as a starting point for the writer rather than a finished version. Show what the content could look like if it were addressed to a reader at reduced capacity, while preserving operational, legal and institutional meaning. UK English throughout. Retain specific details (numbers, dates, statute references, contact information). The writer will adapt this to their voice and constraints — your job is to demonstrate the move, not produce the final."
 }
 
-Return ONLY the JSON object.`;
+Return ONLY the JSON object.
+
+${buildAddressingOverride(context)}`;
 
 const MAX_INPUT_LENGTH = 8500;
 const MODEL = 'claude-sonnet-4-6';
@@ -130,7 +166,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server is not configured. Contact the site administrator.' });
   }
 
-  const { content, jurisdiction } = req.body || {};
+  const { content, jurisdiction, context } = req.body || {};
 
   if (typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ error: 'Content is required' });
@@ -141,6 +177,8 @@ export default async function handler(req, res) {
   if (!jurisdiction || !JURISDICTIONS[jurisdiction]) {
     return res.status(400).json({ error: 'Valid jurisdiction (UK, EU or US) is required' });
   }
+
+  const safeContext = typeof context === 'string' ? context : '';
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -153,7 +191,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 4000,
-        system: buildSystemPrompt(jurisdiction),
+        system: buildSystemPrompt(jurisdiction, safeContext),
         messages: [{
           role: 'user',
           content: `Jurisdiction lens: ${JURISDICTIONS[jurisdiction].label}\n\nContent to review:\n\n---\n${content}\n---`,
