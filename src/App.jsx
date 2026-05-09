@@ -2,20 +2,22 @@ import React, { useState, useEffect, useRef } from 'react';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
+// White-dominant editorial. Navy ink. Severity dots use the three accent
+// ribbons from the logo: coral, sky blue, sage green.
 // =============================================================================
 const PALETTE = {
-  bg:        '#F5F9F1',
-  surface:   '#FFFFFF',
-  ink:       '#0A3D6E',
+  bg:        '#FAFAF6',  // near-white, faint warmth
+  surface:   '#FFFFFF',  // pure white for cards, inputs, chips
+  ink:       '#0A3D6E',  // navy from logo
   muted:     '#5C6B7A',
   faint:     '#A0ADB8',
-  rule:      '#D8E2DA', 
-  panel:     '#EBF2E8',
+  rule:      '#E0DDD3',  // warm pale grey
+  panel:     '#F0EBDD',  // warm cream — subtle accent fills only
   primary:   '#0A3D6E',
   primaryFg: '#FFFFFF',
-  attention: '#F18A65',
-  consider:  '#249ADA',
-  note:      '#7DC6AA',
+  attention: '#E5634A',  // logo coral
+  consider:  '#2BA8DC',  // logo sky blue
+  note:      '#6FAA94',  // logo sage green
   works:     '#3D7A5F',
   harm:      '#B85A3D',
 };
@@ -47,6 +49,7 @@ const CONTEXT_CHIPS = [
 ];
 
 const CHAR_LIMIT = 8000;
+const ABOUT_DISMISS_KEY = 'rb_about_dismissed_v1';
 
 const EXAMPLE = `Dear Occupier,
 
@@ -71,6 +74,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  const [aboutDismissed, setAboutDismissed] = useState(false);
 
   const textareaRef = useRef(null);
   const resultsHeadingRef = useRef(null);
@@ -84,11 +88,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage.getItem(ABOUT_DISMISS_KEY) === '1') {
+        setAboutDismissed(true);
+      }
+    } catch (e) { /* localStorage unavailable, show notice */ }
+  }, []);
+
+  useEffect(() => {
     if (results && resultsHeadingRef.current) {
       resultsHeadingRef.current.focus();
-      setAnnouncement(`Review complete. Verdict: ${verdictLabel(results.overall?.verdict)}. ${results.issues?.length || 0} issues identified.`);
+      setAnnouncement(`Review complete. ${results.issues?.length || 0} issues identified.`);
     }
   }, [results]);
+
+  const dismissAbout = () => {
+    setAboutDismissed(true);
+    try { window.localStorage.setItem(ABOUT_DISMISS_KEY, '1'); } catch (e) {}
+  };
 
   const charsLeft = CHAR_LIMIT - content.length;
   const overLimit = charsLeft < 0;
@@ -127,7 +144,7 @@ export default function App() {
       setResults(JSON.parse(cleaned));
     } catch (e) {
       console.error(e);
-      setError('Something went wrong reading that. Try again, or shorten the passage and try once more.');
+      setError(e.message || 'Something went wrong reading that. Try again, or shorten the passage and try once more.');
       setAnnouncement('Review failed. Please try again.');
     } finally {
       setLoading(false);
@@ -163,18 +180,10 @@ export default function App() {
   };
 
   const severityMeta = (sev) => {
-    if (sev === 'attention') return { dot: PALETTE.attention, bg: '#FCE7DF', label: 'Attention' };
-    if (sev === 'consider')  return { dot: PALETTE.consider,  bg: '#DEEEF9', label: 'Consider'  };
-    return                          { dot: PALETTE.note,      bg: '#E5F2EB', label: 'Note'      };
+    if (sev === 'attention') return { dot: PALETTE.attention, bg: '#FCEAE3', label: 'Attention' };
+    if (sev === 'consider')  return { dot: PALETTE.consider,  bg: '#DDF0F9', label: 'Consider'  };
+    return                          { dot: PALETTE.note,      bg: '#E6F0EA', label: 'Note'      };
   };
-
-const verdictMeta = () => ({
-  color: PALETTE.ink,
-  bg: PALETTE.surface,
-  border: PALETTE.rule,
-});
-
-const verdictLabel = () => '';
 
   const categoryLabel = (cat) => ({
     'cognitive-load':     'cognitive load',
@@ -189,6 +198,7 @@ const verdictLabel = () => '';
     button, select, textarea, input { font-family: inherit; }
     button { cursor: pointer; }
     button:disabled { cursor: not-allowed; opacity: 0.5; }
+    a { color: inherit; }
 
     .rb-root {
       --bg: ${PALETTE.bg};
@@ -221,68 +231,84 @@ const verdictLabel = () => '';
       overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
     }
 
+    /* ---- Header (sticky, contains lens unit) ---- */
     .rb-header {
       border-bottom: 1px solid var(--rule);
-      padding: 24px 32px;
-      background: var(--bg);
-      position: sticky; top: 0; z-index: 10;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      padding: 20px 32px 16px;
+      background: rgba(250, 250, 246, 0.92);
+      position: sticky; top: 0; z-index: 20;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
     .rb-header-row {
       max-width: 1280px; margin: 0 auto;
-      display: flex; align-items: baseline; justify-content: space-between;
+      display: flex; align-items: flex-start; justify-content: space-between;
       gap: 24px; flex-wrap: wrap;
     }
-    .rb-title { font-size: 32px; font-weight: 600; line-height: 1; margin: 0; }
+    .rb-title { font-size: 30px; font-weight: 600; line-height: 1; margin: 0; }
     .rb-subtitle { font-size: 14px; color: var(--muted); margin-top: 6px; }
 
+    .rb-lens-unit {
+      display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+      max-width: 60%;
+    }
+    @media (max-width: 700px) {
+      .rb-lens-unit { align-items: flex-start; max-width: 100%; }
+    }
     .rb-jur-group {
       display: inline-flex; gap: 4px;
-      background: var(--panel); padding: 4px;
-      border-radius: 999px;
+      background: var(--surface); padding: 4px;
+      border-radius: 999px; border: 1px solid var(--rule);
     }
     .rb-jur-btn {
-      padding: 8px 18px; border-radius: 999px; border: none;
+      padding: 7px 16px; border-radius: 999px; border: none;
       background: transparent; color: var(--muted);
       font-size: 13px; font-weight: 500; letter-spacing: 0.02em;
       transition: background 0.15s ease, color 0.15s ease;
     }
-    .rb-jur-btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+    .rb-jur-btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
     .rb-jur-btn:hover:not([aria-pressed="true"]) { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
     .rb-jur-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-
-    .rb-frame-strip {
-      border-bottom: 1px solid var(--rule);
-      padding: 12px 32px; background: var(--panel);
+    .rb-lens-fws {
+      font-size: 12px; color: var(--muted); font-style: italic;
+      text-align: right; max-width: 460px; line-height: 1.45;
     }
-    .rb-frame-inner {
-      max-width: 1280px; margin: 0 auto;
-      font-size: 14px; color: var(--muted); font-style: italic;
-    }
+    @media (max-width: 700px) { .rb-lens-fws { text-align: left; } }
 
-    .rb-honest-strip {
-      max-width: 1280px; margin: 0 auto; padding: 18px 32px 4px;
-      font-size: 15px; color: var(--muted); line-height: 1.6;
+    /* ---- Optional dismissible "About" notice ---- */
+    .rb-about {
+      max-width: 1280px; margin: 16px auto 0;
+      padding: 12px 32px;
+      display: flex; gap: 16px; align-items: flex-start;
     }
-    .rb-honest-strip strong { color: var(--ink); font-weight: 600; }
+    .rb-about-body {
+      flex: 1; font-size: 14px; color: var(--muted); line-height: 1.6;
+    }
+    .rb-about-body strong { color: var(--ink); font-weight: 600; }
+    .rb-about-close {
+      flex-shrink: 0;
+      background: transparent; border: 1px solid var(--rule);
+      color: var(--muted); padding: 4px 12px; border-radius: 999px;
+      font-size: 12px;
+    }
+    .rb-about-close:hover { color: var(--ink); border-color: var(--ink); }
 
+    /* ---- Main grid ---- */
     .rb-main {
       max-width: 1280px; margin: 0 auto;
-      padding: 24px 32px 32px;
-      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px;
+      padding: 24px 32px 40px;
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px;
     }
     @media (max-width: 900px) {
-      .rb-main { grid-template-columns: 1fr; }
-      .rb-header { padding: 20px 20px; }
-      .rb-frame-strip, .rb-honest-strip, .rb-main { padding-left: 20px; padding-right: 20px; }
+      .rb-main { grid-template-columns: 1fr; gap: 24px; }
+      .rb-header { padding: 16px 20px 14px; }
+      .rb-about, .rb-main { padding-left: 20px; padding-right: 20px; }
     }
 
     .rb-section-title { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.005em; }
 
-    .rb-context {
-      margin-bottom: 14px;
-    }
+    /* ---- Context section ---- */
+    .rb-context { margin-bottom: 14px; }
     .rb-context-label {
       display: block; font-size: 12px; color: var(--muted);
       margin-bottom: 6px; font-style: italic;
@@ -296,25 +322,28 @@ const verdictLabel = () => '';
     }
     .rb-context-input::placeholder { color: var(--faint); }
     .rb-context-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
+
     .rb-chips {
       display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
     }
     .rb-chip {
-      background: transparent; border: 1px solid var(--rule);
-      color: var(--muted); padding: 5px 12px;
+      background: var(--surface); border: 1px solid var(--rule);
+      color: var(--ink); padding: 6px 14px;
       border-radius: 999px; font-size: 12px; font-weight: 500;
       transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
     }
     .rb-chip:hover:not([aria-pressed="true"]) {
-      border-color: var(--primary); color: var(--ink);
+      border-color: var(--primary);
+      background: rgba(10, 61, 110, 0.04);
     }
     .rb-chip[aria-pressed="true"] {
-      background: var(--ink); border-color: var(--ink); color: var(--bg);
+      background: var(--ink); border-color: var(--ink); color: var(--surface);
     }
     .rb-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
+    /* ---- Textarea ---- */
     .rb-textarea {
-      width: 100%; min-height: 360px; padding: 18px 20px;
+      width: 100%; min-height: 320px; padding: 18px 20px;
       border: 1px solid var(--rule); border-radius: 8px;
       background: var(--surface);
       font-size: 15px; line-height: 1.65; color: var(--ink);
@@ -338,16 +367,24 @@ const verdictLabel = () => '';
     .rb-link-btn:hover { color: var(--ink); }
     .rb-link-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
 
+    /* ---- Sticky Review action bar ---- */
+    .rb-actions {
+      position: sticky; bottom: 16px;
+      margin-top: 16px; z-index: 5;
+    }
     .rb-primary-btn {
-      width: 100%; margin-top: 18px;
+      width: 100%;
       padding: 14px 20px; border: none; border-radius: 8px;
-      background: var(--ink); color: var(--bg);
+      background: var(--ink); color: var(--surface);
       font-size: 15px; font-weight: 500; letter-spacing: 0.005em;
-      transition: background 0.15s ease;
+      box-shadow: 0 6px 20px rgba(10, 61, 110, 0.18);
+      transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
     }
     .rb-primary-btn:hover:not(:disabled) { background: #062847; }
+    .rb-primary-btn:active:not(:disabled) { transform: translateY(1px); }
     .rb-primary-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
+    /* ---- Review states (empty, loading, error) ---- */
     .rb-empty, .rb-loading, .rb-error-card {
       background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
       padding: 36px 24px; min-height: 320px;
@@ -358,34 +395,60 @@ const verdictLabel = () => '';
     .rb-empty-body { font-size: 14px; color: var(--muted); line-height: 1.6; }
 
     .rb-error-card {
-      background: #FCE7DF; border-color: ${PALETTE.attention};
+      background: #FCEAE3; border-color: ${PALETTE.attention};
       color: ${PALETTE.harm}; padding: 18px 22px;
       min-height: auto; font-size: 14px; line-height: 1.55;
       align-items: flex-start; justify-content: flex-start;
     }
 
-    .rb-results { display: flex; flex-direction: column; gap: 20px; }
+    /* ---- Review results (sticky mini-nav + sections) ---- */
+    .rb-results { display: flex; flex-direction: column; gap: 22px; }
+
+    .rb-results-nav {
+      position: sticky; top: 88px; z-index: 4;
+      display: flex; flex-wrap: wrap; gap: 4px;
+      padding: 8px 0;
+      background: var(--bg);
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+    @media (max-width: 900px) { .rb-results-nav { top: 110px; } }
+    .rb-results-nav a {
+      color: var(--muted); text-decoration: none;
+      padding: 5px 12px; border-radius: 999px;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .rb-results-nav a:hover { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
+    .rb-results-nav a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-results-nav .rb-nav-count {
+      display: inline-block; margin-left: 4px; opacity: 0.6;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .rb-anchor { scroll-margin-top: 140px; }
 
     .rb-verdict {
-      padding: 20px 22px; border-radius: 4px 8px 8px 4px; border-left: 4px solid;
+      padding: 20px 22px; border-radius: 4px 8px 8px 4px;
+      border-left: 4px solid var(--rule);
+      background: var(--surface);
     }
     .rb-verdict-detected {
-      font-size: 13px; font-style: italic;
-      margin-bottom: 10px; opacity: 0.85;
+      font-size: 13px; font-style: italic; color: var(--muted);
+      margin-bottom: 10px;
     }
-    .rb-verdict-detected strong { font-weight: 600; font-style: normal; }
-    .rb-verdict-row {
-      display: flex; justify-content: space-between; align-items: baseline;
-      gap: 16px; flex-wrap: wrap; margin-bottom: 10px;
+    .rb-verdict-detected strong { font-weight: 600; font-style: normal; color: var(--ink); }
+    .rb-verdict-summary { font-size: 15px; line-height: 1.65; color: var(--ink); }
+    .rb-verdict-meta {
+      display: flex; gap: 20px; font-size: 12px; color: var(--muted);
+      margin-top: 12px;
     }
-    .rb-verdict-label { font-size: 22px; font-weight: 600; }
-    .rb-verdict-meta { display: flex; gap: 20px; font-size: 12px; }
-    .rb-verdict-meta strong { font-weight: 600; }
-    .rb-verdict-summary { font-size: 14px; line-height: 1.6; }
+    .rb-verdict-meta strong { font-weight: 600; color: var(--ink); }
 
     .rb-subhead { font-size: 16px; font-weight: 600; margin: 0 0 4px; color: var(--ink); }
     .rb-subhead-note { font-size: 12px; color: var(--muted); margin-bottom: 12px; font-style: italic; }
 
+    /* ---- Issue cards ---- */
     .rb-issue {
       background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
       padding: 16px 18px;
@@ -405,11 +468,11 @@ const verdictLabel = () => '';
       font-size: 14px; line-height: 1.5; font-style: italic;
       margin-bottom: 12px;
     }
-    .rb-issue-problem { font-size: 14px; line-height: 1.6; margin-bottom: 12px; }
+    .rb-issue-problem { font-size: 14px; line-height: 1.6; margin-bottom: 12px; color: var(--ink); }
     .rb-issue-suggest {
       padding: 12px 14px; background: var(--panel);
       border-radius: 6px; border-left: 3px solid var(--primary);
-      font-size: 14px; line-height: 1.55;
+      font-size: 14px; line-height: 1.55; color: var(--ink);
     }
     .rb-issue-suggest-label {
       font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
@@ -417,14 +480,16 @@ const verdictLabel = () => '';
       margin-bottom: 4px;
     }
 
+    /* ---- Flags ---- */
     .rb-flag {
       background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
       padding: 12px 16px;
     }
     .rb-flag-fw { font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
-    .rb-flag-text { font-size: 13px; line-height: 1.55; }
+    .rb-flag-text { font-size: 13px; line-height: 1.55; color: var(--ink); }
 
-    .rb-rewrite-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    /* ---- Rewrite ---- */
+    .rb-rewrite-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
     .rb-copy-btn {
       background: transparent; border: 1px solid var(--primary); color: var(--primary);
       padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
@@ -433,12 +498,13 @@ const verdictLabel = () => '';
     .rb-copy-btn:hover { background: var(--primary); color: var(--primary-fg); }
     .rb-copy-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .rb-rewrite-body {
-      background: var(--bg); border: 1px solid var(--rule); border-radius: 8px;
+      background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
       padding: 20px 22px;
       font-size: 15px; line-height: 1.7; white-space: pre-wrap;
       font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
+    /* ---- Footer ---- */
     .rb-footer {
       padding: 24px 32px 36px; border-top: 1px solid var(--rule);
       margin-top: 32px; background: var(--panel);
@@ -449,6 +515,7 @@ const verdictLabel = () => '';
     }
     @media (max-width: 900px) { .rb-footer { padding: 24px 20px 36px; } }
 
+    /* ---- Animation ---- */
     .rb-fade { animation: rb-fade 0.4s ease; }
     @keyframes rb-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .rb-dots span { animation: rb-blink 1.4s infinite; opacity: 0.3; }
@@ -473,31 +540,42 @@ const verdictLabel = () => '';
             <h1 className="rb-display rb-title">Rembrandt</h1>
             <div className="rb-subtitle">Trauma-informed content review</div>
           </div>
-          <div className="rb-jur-group" role="group" aria-label="Jurisdiction lens">
-            {Object.entries(JURISDICTIONS).map(([key, { short, label }]) => (
-              <button
-                key={key}
-                onClick={() => setJurisdiction(key)}
-                aria-pressed={jurisdiction === key}
-                aria-label={`${label} lens`}
-                className="rb-jur-btn"
-              >
-                {short}
-              </button>
-            ))}
+          <div className="rb-lens-unit">
+            <div className="rb-jur-group" role="group" aria-label="Jurisdiction lens">
+              {Object.entries(JURISDICTIONS).map(([key, { short, label }]) => (
+                <button
+                  key={key}
+                  onClick={() => setJurisdiction(key)}
+                  aria-pressed={jurisdiction === key}
+                  aria-label={`${label} lens`}
+                  className="rb-jur-btn"
+                >
+                  {short}
+                </button>
+              ))}
+            </div>
+            <div className="rb-lens-fws" aria-live="polite">
+              {JURISDICTIONS[jurisdiction].frameworks}
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="rb-frame-strip">
-        <div className="rb-frame-inner" aria-live="polite">
-          Lens: {JURISDICTIONS[jurisdiction].frameworks}
+      {!aboutDismissed && (
+        <div className="rb-about" role="region" aria-label="About Rembrandt">
+          <div className="rb-about-body">
+            <strong>What this is.</strong> Rembrandt flags content that is likely to fail readers in living experience — people moving through grief, fear, pain, exhaustion or the ordinary cognitive compromise of a difficult day. <strong>What this isn't.</strong> A compliance audit, a legal adjudicator, or a substitute for testing with the people the content is for.
+          </div>
+          <button
+            type="button"
+            onClick={dismissAbout}
+            aria-label="Dismiss this notice"
+            className="rb-about-close"
+          >
+            Got it
+          </button>
         </div>
-      </div>
-
-      <div className="rb-honest-strip">
-        <strong>What this is.</strong> Rembrandt flags content that is likely to fail readers in living experience — people moving through grief, fear, pain, exhaustion or the ordinary cognitive compromise of a difficult day. <strong>What this isn't.</strong> A compliance audit, a legal adjudicator, or a substitute for testing with the people the content is for.
-      </div>
+      )}
 
       <main id="main" className="rb-main">
         <section aria-labelledby="input-heading">
@@ -568,17 +646,19 @@ const verdictLabel = () => '';
             Paste up to {CHAR_LIMIT.toLocaleString()} characters of content. Choose the jurisdiction lens at the top of the page before reviewing. Rembrandt will detect what type of content it is.
           </div>
 
-          <button
-            onClick={analyse}
-            disabled={!content.trim() || loading || overLimit}
-            className="rb-primary-btn"
-          >
-            {loading ? (
-              <>Reading carefully<span className="rb-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></>
-            ) : (
-              <>Review through {JURISDICTIONS[jurisdiction].short} lens</>
-            )}
-          </button>
+          <div className="rb-actions">
+            <button
+              onClick={analyse}
+              disabled={!content.trim() || loading || overLimit}
+              className="rb-primary-btn"
+            >
+              {loading ? (
+                <>Reading carefully<span className="rb-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></>
+              ) : (
+                <>Review through {JURISDICTIONS[jurisdiction].short} lens</>
+              )}
+            </button>
+          </div>
         </section>
 
         <section aria-labelledby="results-heading" aria-busy={loading}>
@@ -620,16 +700,31 @@ const verdictLabel = () => '';
 
           {results && !loading && (
             <div className="rb-results rb-fade">
+              <nav className="rb-results-nav" aria-label="Jump to section">
+                <a href="#review-summary">Summary</a>
+                {results.issues?.length > 0 && (
+                  <a href="#review-issues">
+                    Issues<span className="rb-nav-count">({results.issues.length})</span>
+                  </a>
+                )}
+                {results.jurisdictionFlags?.length > 0 && (
+                  <a href="#review-flags">
+                    {JURISDICTIONS[jurisdiction].short} flags<span className="rb-nav-count">({results.jurisdictionFlags.length})</span>
+                  </a>
+                )}
+                {results.rewrite && <a href="#review-rewrite">Rewrite</a>}
+              </nav>
+
               {results.overall && (
-                <div className="rb-verdict" style={{ background: PALETTE.surface, borderLeftColor: PALETTE.rule, color: PALETTE.ink }}>
+                <div id="review-summary" className="rb-verdict rb-anchor">
                   {results.overall.contentType && (
-                    <div className="rb-verdict-detected" style={{ color: PALETTE.muted }}>
-                      Detected as: <strong style={{ color: PALETTE.ink }}>{results.overall.contentType}</strong>
+                    <div className="rb-verdict-detected">
+                      Detected as: <strong>{results.overall.contentType}</strong>
                     </div>
                   )}
-                  <div className="rb-verdict-summary" style={{ color: PALETTE.ink, fontSize: 15, lineHeight: 1.65 }}>{results.overall.summary}</div>
+                  <div className="rb-verdict-summary">{results.overall.summary}</div>
                   {results.overall.readingAge && (
-                    <div className="rb-verdict-meta" style={{ color: PALETTE.muted, marginTop: 12, fontSize: 12 }}>
+                    <div className="rb-verdict-meta">
                       <div>Reading age: <strong>{results.overall.readingAge}</strong></div>
                     </div>
                   )}
@@ -637,7 +732,7 @@ const verdictLabel = () => '';
               )}
 
               {results.issues?.length > 0 && (
-                <div>
+                <div id="review-issues" className="rb-anchor">
                   <h3 className="rb-display rb-subhead">
                     Specific issues ({results.issues.length})
                   </h3>
@@ -669,7 +764,7 @@ const verdictLabel = () => '';
               )}
 
               {results.jurisdictionFlags?.length > 0 && (
-                <div>
+                <div id="review-flags" className="rb-anchor">
                   <h3 className="rb-display rb-subhead">{JURISDICTIONS[jurisdiction].short} flags</h3>
                   <div className="rb-subhead-note">
                     Plausible concerns under named frameworks. Not a compliance audit.
@@ -686,7 +781,7 @@ const verdictLabel = () => '';
               )}
 
               {results.rewrite && (
-                <div>
+                <div id="review-rewrite" className="rb-anchor">
                   <div className="rb-rewrite-head">
                     <h3 className="rb-display rb-subhead" style={{ marginBottom: 0 }}>Suggested rewrite</h3>
                     <button onClick={copyRewrite} className="rb-copy-btn">{copied ? 'Copied' : 'Copy'}</button>
