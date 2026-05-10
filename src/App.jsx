@@ -79,7 +79,7 @@ const SITE = 'https://traumainformedcontent.com';
 const NAV_LINKS = [
   { label: 'What is trauma-informed content?', href: `${SITE}/what-is-trauma-informed-content/` },
   { label: 'Resources',                         href: `${SITE}/resources/` },
-  { label: 'About',                             href: `${SITE}/about/` },
+  { label: 'About',                             href: `${SITE}/about-us/` },
 ];
 
 const EXAMPLE = `Dear Occupier,
@@ -980,7 +980,7 @@ export default function App() {
             </div>
 
             <div className="rb-about-meta">
-              Built by <strong>Adrie van der Luijt</strong> — senior content designer with four decades in government digital services and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of police forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
+              Built by <strong>Adrie van der Luijt</strong> — senior content designer with four decades in government digital services, compliance and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of police forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about-adrie-van-der-luijt/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
             </div>
           </div>
         </section>
@@ -1295,8 +1295,8 @@ export default function App() {
             <a href={`${SITE}/`} target="_blank" rel="noopener noreferrer">traumainformedcontent.com</a>
             <a href={`${SITE}/what-is-trauma-informed-content/`} target="_blank" rel="noopener noreferrer">What is trauma-informed content?</a>
             <a href={`${SITE}/resources/`} target="_blank" rel="noopener noreferrer">Resources</a>
-            <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer">About</a>
-            <a href={`${SITE}/contact/`} target="_blank" rel="noopener noreferrer">Contact</a>
+            <a href={`${SITE}/about-us/`} target="_blank" rel="noopener noreferrer">About</a>
+            <a href={`${SITE}/contact-us-2/`} target="_blank" rel="noopener noreferrer">Contact</a>
           </div>
 
           <div className="rb-footer-meta">
