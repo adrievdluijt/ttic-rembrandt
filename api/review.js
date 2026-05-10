@@ -15,23 +15,23 @@
 const JURISDICTIONS = {
   UK: {
     label: 'United Kingdom',
-    frameworks: 'FCA Consumer Duty · ISO 22458 · GDS content standards · WCAG 2.2 AA · Plain English',
+    frameworks: 'ISO 22458 · WCAG 2.2 AA · GDS content standards · FCA Consumer Duty (where the content falls within FCA scope)',
   },
   EU: {
     label: 'European Union',
-    frameworks: 'European Accessibility Act · EN 301 549 · GDPR transparency · plain-language directives',
+    frameworks: 'European Accessibility Act · EN 301 549 · ISO 22458',
   },
   US: {
     label: 'United States',
-    frameworks: 'Plain Writing Act · Section 508 · ADA · state accessibility statutes',
+    frameworks: 'Plain Writing Act · Section 508 · ADA · ISO 22458',
   },
 };
 
 // Builds the addressing-mode override block. This is appended to the main
 // system prompt and supersedes the "use 'you'" instruction in the voice
-// section, based on what the reviewer typed in the context field.
-const buildAddressingOverride = (context) => {
-  const trimmed = (context || '').trim();
+// section, based on which role chip the reviewer selected.
+const buildAddressingOverride = (role) => {
+  const trimmed = (role || '').trim();
 
   if (!trimmed) {
     return `## ADDRESSING MODE OVERRIDE
@@ -56,12 +56,44 @@ Apply the relevant rule below to the summary field, every observation field, eve
 - If they received this content from an institution: do NOT address anyone as "you" in observations, suggestions, or the summary. Refer to "the writer" or "the sender" throughout. Shift from coaching to diagnostic stance — you are explaining what the content is doing wrong, not coaching someone to fix it. Frame the rewrite as "here is what a trauma-informed version of this content would look like" — illustrative, not instructional. Do not prescribe edits the reviewer cannot make.
 - If they are reviewing third-party work for teaching, analysis, or critique: use a neutral analytical voice. Avoid both "you" addressing and the coaching register. Refer to "the writer" or "this content".
 
-When the context above is ambiguous or does not fit these patterns, default to author-neutral framing: refer to "the writer" rather than "you".
+When the role above is ambiguous or does not fit these patterns, default to author-neutral framing: refer to "the writer" rather than "you".
 
 This OVERRIDES the "use 'you'" instruction in the voice section. The voice section's other guidance (warmth, specificity, finding what works, naming concerns plainly) still applies.`;
 };
 
-const buildSystemPrompt = (jurisdiction, context) => `You are Rembrandt, a trauma-informed content review tool. You review writing for its usability by people in reduced-capacity states: grief, fear, pain, exhaustion, crisis, information overload, sensory overwhelm, micro-trauma, or the ordinary cognitive compromise of a bad day.
+// Builds the reviewer-notes block. The frontend echoes the notes back to the
+// reviewer in the displayed result, so we do not ask the model to reproduce
+// them in its JSON output. The model's job here is to factor them into the
+// analysis without inventing detail beyond what the reviewer actually said.
+const buildNotesSection = (notes) => {
+  const trimmed = (notes || '').trim();
+
+  if (!trimmed) {
+    return `## REVIEWER NOTES
+
+The reviewer has not provided additional context about this content. Proceed with the standard review.`;
+  }
+
+  return `## REVIEWER NOTES
+
+The reviewer has provided the following additional context about this content:
+
+"""
+${trimmed}
+"""
+
+Factor these notes into your analysis where genuinely relevant. Specifically:
+
+- Take the notes at face value. Do NOT extrapolate beyond what the reviewer stated literally. If they say "audience has limited English", apply that lens — adjust readability targets, flag plain-language issues more aggressively. Do not assume the audience is also unfamiliar with UK regulations or culturally specific norms.
+- If the notes mention what the reviewer cannot change (for example, "I can't change the legal disclaimer"), explicitly flag issues with those elements but frame the recommendations as "factors to escalate upstream" rather than "edits to make".
+- If the notes contradict something evident in the content (for example, "this is for screen-reader users" but the content is heavily image-dependent), flag the contradiction in your review rather than picking one source over the other.
+- Where the notes are vague or general, do not invent specifics. Use what the reviewer explicitly said, nothing more.
+- If the notes are not relevant to a particular issue, ignore them for that issue. Do not force the context into observations where it does not belong.
+
+The reviewer's notes are displayed back to them by the frontend as confirmation that their context was received. You do NOT need to echo or restate the notes in your JSON output.`;
+};
+
+const buildSystemPrompt = (jurisdiction, role, notes) => `You are Rembrandt, a trauma-informed content review tool. You review writing for its usability by people in reduced-capacity states: grief, fear, pain, exhaustion, crisis, information overload, sensory overwhelm, micro-trauma, or the ordinary cognitive compromise of a bad day.
 
 ## Your voice
 
@@ -124,11 +156,12 @@ Do not force these terms into every observation — they would lose meaning. Use
 3. Trust and grounding: does the content tell the reader they are not in trouble for reading it; is what happens next predictable; are options stated clearly; is difficulty acknowledged; are conditions hidden.
 4. Power and agency: does the institution carry the burden, or offload it onto the reader; is the reader given real options or directives dressed as options; are decisions reversible.
 5. Reading age: estimate Flesch-Kincaid grade-level equivalent. Reading age is a proxy, not a target. A reader with a PhD reading at grade 14 in pain is functionally a reader at grade 6.
-6. Jurisdictional lens for ${jurisdiction}: ${JURISDICTIONS[jurisdiction].frameworks}. Flag plausible concerns under these frameworks. Do NOT claim definitive compliance or non-compliance. Be specific about what would be flagged and why, never use vague "may not comply" phrasing.
+6. Jurisdictional review for ${jurisdiction}: ${JURISDICTIONS[jurisdiction].frameworks}. Flag plausible concerns under these frameworks. Do NOT claim definitive compliance or non-compliance. Be specific about what would be flagged and why, never use vague "may not comply" phrasing.
 
    Strict scoping rules for jurisdictional flags:
    - Only cite a specific WCAG success criterion if the issue genuinely engages that criterion. WCAG addresses technical accessibility — alt text, keyboard navigation, colour contrast, screen reader behaviour, whether headings describe their content. Editorial issues, sequencing issues, structural ordering, typos and grammatical errors are NOT WCAG issues. Flag them under GDS content standards or Plain English instead.
    - Only include a framework flag if the content plausibly falls within that framework's actual scope. Police guidance is not FCA-regulated. A healthcare appointment reminder is not financial services. A charity service description is not a regulated communication. Do NOT reach for hypothetical secondary applications ("if this were reproduced by a regulated firm..." or "if this content were repurposed for..."). If a framework does not apply to this content type, omit it rather than stretch it.
+   - For the UK lens specifically: FCA Consumer Duty applies only to content from FCA-regulated firms about FCA-regulated products and services. Do NOT flag FCA Consumer Duty for non-financial content. ISO 22458 applies cross-sector and is the appropriate vulnerability framework for non-FS content. GDS content standards apply to UK government digital content.
    - Better to return three strong, defensible flags than four with one strained.
 
 ## Hard rules for the output
@@ -143,7 +176,7 @@ Do not force these terms into every observation — they would lose meaning. Use
 - If the content is already good, say so plainly. Return "works" and few or zero issues. Do not invent problems.
 - If the content is harmful — threatening, shaming, actively distressing — name it as harmful, plainly.
 - Cap issues at the eight most important. The reader of your output is also a reader at reduced capacity.
-- UK English in your own output (analyse, behaviour, organisation, recognise) regardless of which jurisdiction lens is selected and regardless of the input's English variant.
+- UK English in your own output (analyse, behaviour, organisation, recognise) regardless of which jurisdiction is selected and regardless of the input's English variant.
 
 ## Output format
 
@@ -175,7 +208,9 @@ Return a single JSON object. No preamble. No markdown fences. No trailing commen
 
 Return ONLY the JSON object.
 
-${buildAddressingOverride(context)}`;
+${buildAddressingOverride(role)}
+
+${buildNotesSection(notes)}`;
 
 const MAX_INPUT_LENGTH = 8500;
 const MAX_PDF_BASE64 = 3_500_000; // ~2.6 MB raw, comfortably under Vercel's body limit
@@ -194,7 +229,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server is not configured. Contact the site administrator.' });
   }
 
-  const { content, pdfData, pdfFilename, jurisdiction, context } = req.body || {};
+  const { content, pdfData, pdfFilename, jurisdiction, role, notes } = req.body || {};
 
   const hasText = typeof content === 'string' && content.trim().length > 0;
   const hasPdf  = typeof pdfData === 'string' && pdfData.length > 0;
@@ -212,7 +247,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Valid jurisdiction (UK, EU or US) is required' });
   }
 
-  const safeContext = typeof context === 'string' ? context : '';
+  const safeRole  = typeof role  === 'string' ? role  : '';
+  const safeNotes = typeof notes === 'string' ? notes : '';
   const safePdfName = typeof pdfFilename === 'string' ? pdfFilename : 'document.pdf';
 
   // Build the user message. For PDFs, send the document block plus a short
@@ -229,10 +265,10 @@ export default async function handler(req, res) {
         },
         {
           type: 'text',
-          text: `Jurisdiction lens: ${JURISDICTIONS[jurisdiction].label}\n\nThe attached PDF (${safePdfName}) is the content to review. Treat its full text as the input.`,
+          text: `Jurisdiction: ${JURISDICTIONS[jurisdiction].label}\n\nThe attached PDF (${safePdfName}) is the content to review. Treat its full text as the input.`,
         },
       ]
-    : `Jurisdiction lens: ${JURISDICTIONS[jurisdiction].label}\n\nContent to review:\n\n---\n${content}\n---`;
+    : `Jurisdiction: ${JURISDICTIONS[jurisdiction].label}\n\nContent to review:\n\n---\n${content}\n---`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -245,7 +281,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 8192,
-        system: buildSystemPrompt(jurisdiction, safeContext),
+        system: buildSystemPrompt(jurisdiction, safeRole, safeNotes),
         messages: [{ role: 'user', content: userContent }],
       }),
     });
