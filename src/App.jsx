@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // Edit these constants to update the version stamp and feedback channel.
 // =============================================================================
 const VERSION = 'v0.9';
-const VERSION_DATE = '9 May 2026';
+const VERSION_DATE = '10 May 2026';
 const FEEDBACK_URL = 'mailto:adrie@traumainformedcontent.com?subject=Rembrandt%20Editor%20feedback';
 
 // =============================================================================
@@ -39,7 +39,6 @@ const JURISDICTIONS = {
       'ISO 22458',
       'GDS content standards',
       'WCAG 2.2 AA',
-      'Plain English',
     ],
   },
   EU: {
@@ -48,8 +47,7 @@ const JURISDICTIONS = {
     frameworks: [
       'European Accessibility Act',
       'EN 301 549',
-      'GDPR transparency',
-      'Plain-language directives',
+      'ISO 22458',
     ],
   },
   US: {
@@ -59,12 +57,12 @@ const JURISDICTIONS = {
       'Plain Writing Act',
       'Section 508',
       'ADA',
-      'State accessibility statutes',
+      'ISO 22458',
     ],
   },
 };
 
-const CONTEXT_CHIPS = [
+const ROLE_CHIPS = [
   "I'm drafting this myself",
   "I'm editing what a colleague drafted",
   "I'm shipping content my team wrote",
@@ -103,8 +101,9 @@ const buildReviewMarkdown = (results, jurisdiction) => {
 
   if (results.overall) {
     if (results.overall.contentType) lines.push(`**Detected as:** ${results.overall.contentType}`);
-    if (results.overall.readingAge)  lines.push(`**Reading age:** ${results.overall.readingAge}`);
-    if (results.overall.contentType || results.overall.readingAge) lines.push('');
+    if (results.overall.readingAge)  lines.push(`**Reading age:** ${results.overall.readingAge} — aim for 8 or lower (Flesch-Kincaid grade level)`);
+    if (results.overall.contextApplied) lines.push(`**Context applied:** ${results.overall.contextApplied}`);
+    if (results.overall.contentType || results.overall.readingAge || results.overall.contextApplied) lines.push('');
 
     if (results.overall.summary) {
       lines.push('## Summary', '', results.overall.summary, '');
@@ -145,7 +144,7 @@ const frameworksByJurisdiction = {
   UK: 'ISO 22458, WCAG 2.2 AA, GDS content standards, plus FCA Consumer Duty for financial services',
   EU: 'European Accessibility Act, EN 301 549, ISO 22458',
   US: 'Plain Writing Act, Section 508, ADA, ISO 22458',
-}
+};
 
 // =============================================================================
 // COMPONENT
@@ -153,7 +152,8 @@ const frameworksByJurisdiction = {
 export default function App() {
   const [content, setContent] = useState('');
   const [pdfFile, setPdfFile] = useState(null); // { name, data, size } when set
-  const [context, setContext] = useState('');
+  const [role, setRole] = useState('');
+  const [notes, setNotes] = useState('');
   const [jurisdiction, setJurisdiction] = useState('UK');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
@@ -278,10 +278,14 @@ export default function App() {
     setResults(null);
     setAnnouncement('Reviewing content. This usually takes 10 to 20 seconds.');
 
+    // Snapshot notes at the moment the review is run, so subsequent edits
+    // to the notes field don't desync from the displayed "Context applied".
+    const notesSnapshot = notes.trim();
+
     try {
       const body = pdfFile
-        ? { pdfData: pdfFile.data, pdfFilename: pdfFile.name, jurisdiction, context }
-        : { content, jurisdiction, context };
+        ? { pdfData: pdfFile.data, pdfFilename: pdfFile.name, jurisdiction, role, notes: notesSnapshot }
+        : { content, jurisdiction, role, notes: notesSnapshot };
 
       const response = await fetch('/api/review', {
         method: 'POST',
@@ -313,7 +317,13 @@ export default function App() {
       }
 
       try {
-        setResults(JSON.parse(cleaned));
+        const parsed = JSON.parse(cleaned);
+        // Inject the snapshotted notes into the results so they display
+        // alongside the model's output as confirmation of what was sent.
+        if (notesSnapshot && parsed.overall) {
+          parsed.overall.contextApplied = notesSnapshot;
+        }
+        setResults(parsed);
       } catch (parseErr) {
         throw new Error("The review couldn't be processed this time. Try again, or shorten the passage and try once more.");
       }
@@ -342,7 +352,7 @@ export default function App() {
   };
 
   const toggleChip = (chip) => {
-    setContext((current) => (current === chip ? '' : chip));
+    setRole((current) => (current === chip ? '' : chip));
   };
 
   const copyRewrite = async () => {
@@ -474,7 +484,7 @@ export default function App() {
       .rb-nav-feedback { margin-left: 0 !important; margin-top: 4px; text-align: center; }
     }
 
-    /* ---- Lens row ---- */
+    /* ---- Jurisdiction row ---- */
     .rb-lens-row {
       max-width: 1280px; margin: 0 auto;
       padding: 6px 32px 12px;
@@ -573,19 +583,26 @@ export default function App() {
 
     .rb-section-title { font-family: 'Rethink Sans', sans-serif; font-size: 22px; font-weight: 600; margin: 0 0 14px; letter-spacing: -0.01em; }
 
-    /* ---- Context section ---- */
-    .rb-context { margin-bottom: 14px; }
-    .rb-context-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-style: italic; }
-    .rb-context-input {
+    /* ---- Role and notes inputs ---- */
+    .rb-role { margin-bottom: 14px; }
+    .rb-notes { margin-bottom: 14px; }
+    .rb-field-label {
+      display: block; font-size: 12px; color: var(--muted);
+      margin-bottom: 6px; font-style: italic;
+    }
+    .rb-notes-input {
       width: 100%; padding: 10px 14px;
       border: 1px solid var(--rule); border-radius: 8px;
-      background: var(--surface); font-size: 14px; color: var(--ink); outline: none;
+      background: var(--surface);
+      font-size: 14px; line-height: 1.5; color: var(--ink); outline: none;
+      font-family: inherit;
+      resize: vertical;
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    .rb-context-input::placeholder { color: var(--faint); }
-    .rb-context-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
+    .rb-notes-input::placeholder { color: var(--faint); }
+    .rb-notes-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
 
-    .rb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .rb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .rb-chip {
       background: var(--surface); border: 1px solid var(--rule);
       color: var(--ink); padding: 6px 14px;
@@ -770,9 +787,28 @@ export default function App() {
     }
     .rb-verdict-detected { font-size: 13px; font-style: italic; color: var(--muted); margin-bottom: 12px; }
     .rb-verdict-detected strong { font-weight: 600; font-style: normal; color: var(--ink); }
+    .rb-verdict-context {
+      font-size: 13px; color: var(--ink);
+      margin-bottom: 14px; padding: 10px 14px;
+      background: var(--panel); border-radius: 6px;
+      border-left: 3px solid var(--ink);
+      line-height: 1.5;
+    }
+    .rb-verdict-context strong {
+      font-weight: 600; color: var(--ink);
+      display: block; margin-bottom: 2px;
+      font-size: 11px; letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
     .rb-verdict-summary { font-size: 16px; line-height: 1.65; color: var(--ink); }
-    .rb-verdict-meta { display: flex; gap: 20px; font-size: 13px; color: var(--muted); margin-top: 14px; }
+    .rb-verdict-meta {
+      display: flex; flex-direction: column; gap: 4px;
+      font-size: 14px; color: var(--ink); margin-top: 14px;
+    }
     .rb-verdict-meta strong { font-weight: 600; color: var(--ink); }
+    .rb-verdict-meta-note {
+      font-size: 12px; font-style: italic; color: var(--muted);
+    }
 
     .rb-subhead { font-family: 'Rethink Sans', sans-serif; font-size: 17px; font-weight: 600; margin: 0 0 4px; color: var(--ink); }
     .rb-subhead-note { font-size: 12px; color: var(--muted); margin-bottom: 12px; font-style: italic; }
@@ -901,11 +937,11 @@ export default function App() {
         </div>
 
         <div className="rb-lens-row">
-          <div className="rb-jur-group" role="group" aria-label="Jurisdiction lens">
+          <div className="rb-jur-group" role="group" aria-label="Jurisdiction">
             {Object.entries(JURISDICTIONS).map(([key, { short, label }]) => (
               <button
                 key={key} onClick={() => setJurisdiction(key)}
-                aria-pressed={jurisdiction === key} aria-label={`${label} lens`}
+                aria-pressed={jurisdiction === key} aria-label={label}
                 className="rb-jur-btn"
               >
                 {short}
@@ -944,7 +980,7 @@ export default function App() {
             </div>
 
             <div className="rb-about-meta">
-              Built by <strong>Adrie van der Luijt</strong> — senior content designer with four decades in government digital services and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of poice forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
+              Built by <strong>Adrie van der Luijt</strong> — senior content designer with four decades in government digital services and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of police forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
             </div>
           </div>
         </section>
@@ -954,28 +990,37 @@ export default function App() {
         <section aria-labelledby="input-heading">
           <h2 id="input-heading" className="rb-display rb-section-title">Content to review</h2>
 
-          <div className="rb-context">
-            <label htmlFor="context-input" className="rb-context-label">
+          <div className="rb-role">
+            <span className="rb-field-label" id="role-label">
               Your role with this content (optional)
-            </label>
-            <input
-              id="context-input" type="text" value={context}
-              onChange={(e) => setContext(e.target.value)}
-              placeholder="e.g. I'm editing what our policy team drafted"
-              className="rb-context-input" aria-describedby="context-help"
-            />
-            <div className="rb-chips" role="group" aria-label="Common roles">
-              {CONTEXT_CHIPS.map((chip) => (
+            </span>
+            <div className="rb-chips" role="group" aria-labelledby="role-label">
+              {ROLE_CHIPS.map((chip) => (
                 <button
                   key={chip} type="button" onClick={() => toggleChip(chip)}
-                  aria-pressed={context === chip} className="rb-chip"
+                  aria-pressed={role === chip} className="rb-chip"
                 >
                   {chip}
                 </button>
               ))}
             </div>
-            <div id="context-help" className="rb-sr-only">
-              Telling Rembrandt Editor your role with this content shapes how the review is addressed.
+          </div>
+
+          <div className="rb-notes">
+            <label htmlFor="notes-input" className="rb-field-label">
+              Anything else we should know (optional)
+            </label>
+            <textarea
+              id="notes-input"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="rb-notes-input"
+              placeholder="e.g. 'audience has limited English' or 'I can't change the legal disclaimer at the bottom'"
+              aria-describedby="notes-help"
+            />
+            <div id="notes-help" className="rb-sr-only">
+              Anything you tell Rembrandt Editor here will be factored into the review and shown back to you alongside the result so you can verify it was understood.
             </div>
           </div>
 
@@ -1055,7 +1100,7 @@ export default function App() {
               {loading ? (
                 <>Reading carefully<span className="rb-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></>
               ) : (
-                <>Review through {JURISDICTIONS[jurisdiction].short} lens</>
+                <>Review using {JURISDICTIONS[jurisdiction].short} frameworks</>
               )}
             </button>
           </div>
@@ -1079,9 +1124,9 @@ export default function App() {
             <div className="rb-empty">
               <div className="rb-empty-inner">
                 <p className="rb-empty-cta">Paste content and click Review to begin.</p>
-                <p className="rb-empty-cta-sub">
-                  Or upload a PDF.</p>
-                <p className="rb-empty-body">Reviewing under {jurisdiction} frameworks — {frameworksByJurisdiction[jurisdiction]}. Change jurisdiction at the top of the page if you need a different one.
+                <p className="rb-empty-cta-sub">Or upload a PDF.</p>
+                <p className="rb-empty-body">
+                  Reviewing under {jurisdiction} frameworks — {frameworksByJurisdiction[jurisdiction]}. Change jurisdiction at the top of the page if you need a different one.
                 </p>
                 <div className="rb-empty-divider" aria-hidden="true" />
                 <p className="rb-empty-quote">
@@ -1151,10 +1196,21 @@ export default function App() {
                       Detected as: <strong>{results.overall.contentType}</strong>
                     </div>
                   )}
+                  {results.overall.contextApplied && (
+                    <div className="rb-verdict-context">
+                      <strong>Context applied</strong>
+                      {results.overall.contextApplied}
+                    </div>
+                  )}
                   <div className="rb-verdict-summary">{results.overall.summary}</div>
                   {results.overall.readingAge && (
                     <div className="rb-verdict-meta">
-                      <div>Reading age: <strong>{results.overall.readingAge}</strong></div>
+                      <div>
+                        <strong>Reading age: {results.overall.readingAge}</strong> — aim for 8 or lower
+                      </div>
+                      <div className="rb-verdict-meta-note">
+                        Flesch-Kincaid grade level. Lower is better for content read in distress.
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1230,7 +1286,7 @@ export default function App() {
               <strong>Rembrandt Editor</strong> reviews content through a trauma-informed lens. It is not a compliance tool, a legal adjudicator, or a replacement for testing with the people the content is for. It flags plausible concerns. You decide what to do about them.
             </p>
             <p>
-              Built and maintained by <a href="https://traumainformedcontent.com" alt="Trauma-Informed Content Consulting advises government bodies and regulated organisations on content that works for people on a bad day" target="_blank">Trauma-Informed Content Consulting</a>. <a href={FEEDBACK_URL}>Send feedback</a>.
+              Built and maintained by <a href="https://traumainformedcontent.com" target="_blank" rel="noopener noreferrer">Trauma-Informed Content Consulting</a>. <a href={FEEDBACK_URL}>Send feedback</a>.
             </p>
           </div>
 
@@ -1245,7 +1301,7 @@ export default function App() {
 
           <div className="rb-footer-meta">
             <div>
-              © {new Date().getFullYear()} <a href="https://traumainformedcontent.com" alt="Trauma-Informed Content Consulting advises government bodies and regulated organisations on content that works for people on a bad day" target="_blank">Trauma-Informed Content Consulting</a>, a trading name of <a href="https://www.banksidecommunications.com/" target="_blank" alt="Bankside Communications">Bankside Communications Limited</a>. All rights reserved.
+              © {new Date().getFullYear()} <a href="https://traumainformedcontent.com" target="_blank" rel="noopener noreferrer">Trauma-Informed Content Consulting</a>, a trading name of <a href="https://www.banksidecommunications.com/" target="_blank" rel="noopener noreferrer">Bankside Communications Limited</a>. All rights reserved.
             </div>
             <div className="rb-version" aria-label={`Version ${VERSION}, released ${VERSION_DATE}`}>
               {VERSION} · {VERSION_DATE}
