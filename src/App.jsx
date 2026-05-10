@@ -938,7 +938,7 @@ export default function App() {
             </div>
 
             <div className="rb-about-meta">
-              Built by <strong>Adrie van der Luijt</strong> — content designer with four decades in journalism, government digital services and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of poice forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
+              Built by <strong>Adrie van der Luijt</strong> — senior content designer with four decades in government digital services and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of poice forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
             </div>
           </div>
         </section>
