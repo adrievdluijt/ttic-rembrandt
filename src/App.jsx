@@ -1081,7 +1081,7 @@ export default function App() {
                 <p className="rb-empty-cta">Paste content and click Review to begin.</p>
                 <p className="rb-empty-cta-sub">
                   Or upload a PDF.</p>
-                <p className="rb-empty-body">Reviewing under ${jurisdiction} frameworks — ${frameworksByJurisdiction[jurisdiction]}. Change jurisdiction at the top of the page if you need a different one.
+                <p className="rb-empty-body">Reviewing under {jurisdiction} frameworks — {frameworksByJurisdiction[jurisdiction]}. Change jurisdiction at the top of the page if you need a different one.
                 </p>
                 <div className="rb-empty-divider" aria-hidden="true" />
                 <p className="rb-empty-quote">
