@@ -1238,7 +1238,7 @@ export default function App() {
 
           <div className="rb-footer-meta">
             <div>
-              © {Y} <a href="https://traumainformedcontent.com" alt="Trauma-Informed Content Consulting advises government bodies and regulated organisations on content that works for people on a bad day" target="_blank">Trauma-Informed Content Consulting</a>, a trading name of <a href="https://www.banksidecommunications.com/" target="_blank" alt="Bankside Communications">Bankside Communications Limited</a>. All rights reserved.
+              © new Date().getFullYear()} <a href="https://traumainformedcontent.com" alt="Trauma-Informed Content Consulting advises government bodies and regulated organisations on content that works for people on a bad day" target="_blank">Trauma-Informed Content Consulting</a>, a trading name of <a href="https://www.banksidecommunications.com/" target="_blank" alt="Bankside Communications">Bankside Communications Limited</a>. All rights reserved.
             </div>
             <div className="rb-version" aria-label={`Version ${VERSION}, released ${VERSION_DATE}`}>
               {VERSION} · {VERSION_DATE}
