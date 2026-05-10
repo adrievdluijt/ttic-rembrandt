@@ -1074,7 +1074,8 @@ export default function App() {
               <div className="rb-empty-inner">
                 <p className="rb-empty-cta">Paste content and click Review to begin.</p>
                 <p className="rb-empty-cta-sub">
-                  Or upload a PDF. Reviewing under UK frameworks — FCA Consumer Duty, GDS standards, ISO 22458, WCAG 2.2. Change {JURISDICTIONS[jurisdiction].short} jurisdiction lens at the top of the page if you need EU or US.
+                  Or upload a PDF.</p>
+                <p className="rb-empty-quote">Reviewing under UK frameworks — FCA Consumer Duty, GDS standards, ISO 22458, WCAG 2.2. Change {JURISDICTIONS[jurisdiction].short} jurisdiction lens at the top of the page if you need EU or US.
                 </p>
                 <div className="rb-empty-divider" aria-hidden="true" />
                 <p className="rb-empty-quote">
