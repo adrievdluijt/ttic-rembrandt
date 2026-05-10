@@ -932,7 +932,7 @@ export default function App() {
               <div className="rb-about-block">
                 <h2>What this isn't</h2>
                 <p className="rb-about-body">
-                  A compliance audit, a legal adjudicator, or a substitute for testing with the people the content is for. It surfaces plausible concerns. You decide what to do about them.
+                  A compliance audit, a legal adjudicator or a substitute for testing with the people the content is for. It surfaces plausible concerns. You decide what to do about them.
                 </p>
               </div>
             </div>
