@@ -938,7 +938,7 @@ export default function App() {
             </div>
 
             <div className="rb-about-meta">
-              Built by <strong>Adrie van der Luijt</strong> — content designer with four decades in journalism, government digital services and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of UK forces), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
+              Built by <strong>Adrie van der Luijt</strong> — content designer with four decades in journalism, government digital services and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of poice forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
             </div>
           </div>
         </section>
@@ -969,7 +969,7 @@ export default function App() {
               ))}
             </div>
             <div id="context-help" className="rb-sr-only">
-              Telling Rembrandt your role with this content shapes how the review is addressed.
+              Telling Rembrandt Editor your role with this content shapes how the review is addressed.
             </div>
           </div>
 
@@ -1081,7 +1081,7 @@ export default function App() {
                   "We design for full capacity. Life rarely provides it."
                 </p>
                 <p className="rb-empty-body">
-                  Rembrandt Editor reads for the person who is tired, frightened, grieving, in pain, or simply having a difficult day. That is most readers, most of the time.
+                  Rembrandt Editor reads for the person who is tired, frightened, grieving, in pain or simply having a difficult day. That is most readers, most of the time.
                 </p>
               </div>
             </div>
@@ -1223,7 +1223,7 @@ export default function App() {
               <strong>Rembrandt Editor</strong> reviews content through a trauma-informed lens. It is not a compliance tool, a legal adjudicator, or a replacement for testing with the people the content is for. It flags plausible concerns. You decide what to do about them.
             </p>
             <p>
-              Built and maintained by Trauma-Informed Content Consulting. <a href={FEEDBACK_URL}>Send feedback</a>.
+              Built and maintained by <a href="https://traumainformedcontent.com" alt="Trauma-Informed Content Consulting advises government bodies and regulated organisations on content that works for people on a bad day" target="_blank">Trauma-Informed Content Consulting</a>. <a href={FEEDBACK_URL}>Send feedback</a>.
             </p>
           </div>
 
@@ -1238,7 +1238,7 @@ export default function App() {
 
           <div className="rb-footer-meta">
             <div>
-              © 2026 Trauma-Informed Content Consulting, a trading name of Bankside Communications Limited. All rights reserved.
+              © {Y} <a href="https://traumainformedcontent.com" alt="Trauma-Informed Content Consulting advises government bodies and regulated organisations on content that works for people on a bad day" target="_blank">Trauma-Informed Content Consulting</a>, a trading name of <a href="https://www.banksidecommunications.com/" target="_blank" alt="Bankside Communications">Bankside Communications Limited</a>. All rights reserved.
             </div>
             <div className="rb-version" aria-label={`Version ${VERSION}, released ${VERSION_DATE}`}>
               {VERSION} · {VERSION_DATE}
