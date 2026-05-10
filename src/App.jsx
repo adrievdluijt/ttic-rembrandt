@@ -142,9 +142,9 @@ const buildReviewMarkdown = (results, jurisdiction) => {
 };
 
 const frameworksByJurisdiction = {
-  UK: 'FCA Consumer Duty, GDS standards, ISO 22458, WCAG 2.2 AA',
-  EU: 'European Accessibility Act, EN 301 549',
-  US: 'Plain Writing Act, Section 508, ADA',
+  UK: 'ISO 22458, WCAG 2.2 AA, GDS content standards, plus FCA Consumer Duty for financial services',
+  EU: 'European Accessibility Act, EN 301 549, ISO 22458',
+  US: 'Plain Writing Act, Section 508, ADA, ISO 22458',
 }
 
 // =============================================================================
