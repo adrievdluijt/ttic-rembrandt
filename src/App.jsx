@@ -907,6 +907,28 @@ export default function App() {
       </div>
 
       <header className="rb-header">
+        <!-- Open Graph completions -->
+<meta property="og:url" content="https://www.rembrandtapp.com/" />
+<meta property="og:site_name" content="Rembrandt Editor" />
+<meta property="og:locale" content="en_GB" />
+<meta property="og:image" content="https://www.rembrandtapp.com/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Rembrandt Editor — trauma-informed content review" />
+
+<!-- Twitter Cards (used by X, Bluesky and some others) -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Rembrandt — Trauma-informed content review" />
+<meta name="twitter:description" content="Review writing for its usability by readers at reduced capacity. UK, EU and US regulatory lenses." />
+<meta name="twitter:image" content="https://www.rembrandtapp.com/og-image.png" />
+<meta name="twitter:image:alt" content="Rembrandt Editor — trauma-informed content review" />
+
+<!-- Canonical URL -->
+<link rel="canonical" href="https://www.rembrandtapp.com/" />
+
+<!-- Favicon (your console was 404'ing on /favicon.ico earlier) -->
+<link rel="icon" type="image/png" href="/favicon.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <div className="rb-header-inner">
           <div className="rb-header-row">
             <a href="/" className="rb-brand" aria-label="Rembrandt Editor — home">
