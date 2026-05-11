@@ -36,6 +36,8 @@ const JURISDICTIONS = {
     short: 'UK',
     frameworks: [
       'FCA Consumer Duty',
+      'Fundraising Regulator',
+      'ASA CAP code',
       'ISO 22458',
       'GDS content standards',
       'WCAG 2.2 AA',
@@ -94,6 +96,56 @@ Yours faithfully,
 Revenues Department`;
 
 // =============================================================================
+// READING-AGE CONTEXT
+// Derives an audience-contextual reading-age target from the contentType
+// string returned by the backend. Returns null when no mode signal matches —
+// in which case the UI displays the bare grade number without commentary.
+// The backend prompt requires contentType to include a mode signal such as
+// "(service content)" or "(organisational overview)" so the match below
+// should fire for any well-classified review.
+// =============================================================================
+const getReadingAgeContext = (readingAge, contentType) => {
+  const t = (contentType || '').toLowerCase();
+
+  let target = null;
+  let modeName = null;
+  let targetText = null;
+
+  if (t.includes('crisis') || t.includes('emergency')) {
+    target = 9;
+    modeName = 'crisis or emergency content';
+    targetText = 'aim for grade 7-9';
+  } else if (t.includes('service content')) {
+    target = 9;
+    modeName = 'service content';
+    targetText = 'GDS guidance is around grade 9';
+  } else if (t.includes('fundraising') || t.includes('emotional appeal') || t.includes('appeal email') || t.includes('donor')) {
+    target = 11;
+    modeName = 'fundraising content';
+    targetText = 'grade 9-11 is typical';
+  } else if (t.includes('marketing') || t.includes('commercial') || t.includes('promotional')) {
+    target = 10;
+    modeName = 'marketing content';
+    targetText = 'grade 8-10 is typical';
+  } else if (t.includes('organisational') || t.includes('overview') ||
+             t.includes('educational') || t.includes('blog') ||
+             t.includes('article') || t.includes('explainer')) {
+    target = 12;
+    modeName = 'content for engaged adult audiences';
+    targetText = 'grade 9-12 is typical';
+  }
+
+  if (!target) return null;
+  return {
+    target,
+    modeName,
+    targetText,
+    exceedsTarget: readingAge > target,
+    isLivingExperience: modeName === 'service content' || modeName === 'crisis or emergency content',
+  };
+};
+
+// =============================================================================
 // MARKDOWN BUILDER — used by the Copy review button
 // =============================================================================
 const buildReviewMarkdown = (results, jurisdiction) => {
@@ -101,7 +153,15 @@ const buildReviewMarkdown = (results, jurisdiction) => {
 
   if (results.overall) {
     if (results.overall.contentType) lines.push(`**Detected as:** ${results.overall.contentType}`);
-    if (results.overall.readingAge)  lines.push(`**Reading age:** ${results.overall.readingAge} — aim for 8 or lower (Flesch-Kincaid grade level)`);
+    if (results.overall.readingAge) {
+      const age = results.overall.readingAge;
+      const ctx = getReadingAgeContext(age, results.overall.contentType);
+      if (ctx && ctx.exceedsTarget) {
+        lines.push(`**Reading age:** grade ${age} — for ${ctx.modeName}, ${ctx.targetText} (Flesch-Kincaid)`);
+      } else {
+        lines.push(`**Reading age:** grade ${age} (Flesch-Kincaid)`);
+      }
+    }
     if (results.overall.contextApplied) lines.push(`**Context applied:** ${results.overall.contextApplied}`);
     if (results.overall.contentType || results.overall.readingAge || results.overall.contextApplied) lines.push('');
 
@@ -141,7 +201,7 @@ const buildReviewMarkdown = (results, jurisdiction) => {
 };
 
 const frameworksByJurisdiction = {
-  UK: 'ISO 22458, WCAG 2.2 AA, GDS content standards, plus FCA Consumer Duty for financial services',
+  UK: 'ISO 22458, WCAG 2.2 AA, GDS content standards, plus sector-specific frameworks where they apply (FCA Consumer Duty, Fundraising Regulator, ASA CAP code)',
   EU: 'European Accessibility Act, EN 301 549, ISO 22458',
   US: 'Plain Writing Act, Section 508, ADA, ISO 22458',
 };
@@ -896,6 +956,12 @@ export default function App() {
 
   const frameworkTone = (idx) => ['coral', 'sky', 'sage', 'coral', 'sky'][idx % 5];
 
+  // Pre-compute reading-age context for the verdict block so we can use it
+  // in both the inline target line and the explanatory note below it.
+  const readingAgeCtx = results?.overall?.readingAge
+    ? getReadingAgeContext(results.overall.readingAge, results.overall.contentType)
+    : null;
+
   return (
     <div className="rb-root">
       <style>{css}</style>
@@ -1206,10 +1272,16 @@ export default function App() {
                   {results.overall.readingAge && (
                     <div className="rb-verdict-meta">
                       <div>
-                        <strong>Reading age: {results.overall.readingAge}</strong> — aim for 8 or lower
+                        <strong>Reading age: grade {results.overall.readingAge}</strong>
+                        {readingAgeCtx && readingAgeCtx.exceedsTarget && (
+                          <> — for {readingAgeCtx.modeName}, {readingAgeCtx.targetText}</>
+                        )}
                       </div>
                       <div className="rb-verdict-meta-note">
-                        Flesch-Kincaid grade level. Lower is better for content read in distress.
+                        Flesch-Kincaid grade level
+                        {readingAgeCtx?.isLivingExperience && readingAgeCtx.exceedsTarget
+                          ? '. Lower is better for content read in distress'
+                          : ''}.
                       </div>
                     </div>
                   )}
