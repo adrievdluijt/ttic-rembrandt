@@ -1360,7 +1360,7 @@ useEffect(() => {
         <div className="rb-footer-inner">
           <div className="rb-footer-disclaimer">
             <p>
-              <strong>Rembrandt Editor</strong> reviews content through a trauma-informed lens. It is not a compliance tool, a legal adjudicator, or a replacement for testing with the people the content is for. It flags plausible concerns. You decide what to do about them.
+              <strong>Rembrandt Editor</strong> reviews content through a trauma-informed lens. It is not a compliance tool, a legal adjudicator or a replacement for testing with the people the content is for. It flags plausible concerns. You decide what to do about them.
             </p>
             <p>
               Built and maintained by <a href="https://traumainformedcontent.com" target="_blank" rel="noopener noreferrer">Trauma-Informed Content Consulting</a>. <a href={FEEDBACK_URL}>Send feedback</a>.
