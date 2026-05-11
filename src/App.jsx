@@ -252,27 +252,24 @@ export default function App() {
     } catch (e) { /* ignore */ }
   }, []);
 
-  useEffect(() => {
-    if (results && resultsHeadingRef.current) {
-      resultsHeadingRef.current.focus();
-      setAnnouncement(`Review complete. ${results.issues?.length || 0} issues identified.`);
-    }
-  }, [results]);
-
-  useEffect(() => {
-    if (!loading) {
-      setReviewPhase(-1);
-      return;
-    }
-    setReviewPhase(0);
-    let cumulative = 0;
-    const timers = PHASES.map((p, i) => {
-      cumulative += p.ms;
-      return setTimeout(() => setReviewPhase(i + 1), cumulative);
-    });
-    return () => timers.forEach(clearTimeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, jurisdiction]);
+useEffect(() => {
+  if (!loading) {
+    setReviewPhase(-1);
+    return;
+  }
+  setReviewPhase(0);
+  let cumulative = 0;
+  // Schedule timers for every phase EXCEPT the last one. The last phase
+  // stays "current" until the API actually returns, instead of ticking
+  // complete on a timer and leaving a confusing dead period where every
+  // phase shows ✓ but nothing happens.
+  const timers = PHASES.slice(0, -1).map((p, i) => {
+    cumulative += p.ms;
+    return setTimeout(() => setReviewPhase(i + 1), cumulative);
+  });
+  return () => timers.forEach(clearTimeout);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [loading, jurisdiction]);
 
   const dismissAbout = () => {
     setAboutDismissed(true);
@@ -952,6 +949,14 @@ export default function App() {
     .rb-dots span:nth-child(2) { animation-delay: 0.2s; }
     .rb-dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes rb-blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+    .rb-phase-active {
+  display: inline-block;
+  animation: rb-phase-pulse 1.4s ease-in-out infinite;
+}
+@keyframes rb-phase-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
   `;
 
   const frameworkTone = (idx) => ['coral', 'sky', 'sage', 'coral', 'sky'][idx % 5];
@@ -1217,8 +1222,8 @@ export default function App() {
                     return (
                       <li key={i} className={cls}>
                         <span className="rb-phase-marker" aria-hidden="true">
-                          {done ? '✓' : current ? '·' : '·'}
-                        </span>
+  {done ? '✓' : current ? <span className="rb-phase-active">●</span> : '·'}
+</span>
                         {p.label}
                       </li>
                     );
