@@ -23,7 +23,7 @@ const JURISDICTIONS = {
   },
   US: {
     label: 'United States',
-    frameworks: 'Plain Writing Act · Section 508 · ADA · ISO 22458',
+    frameworks: 'Plain Writing Act · Section 508 · ADA · ISO 22458 · FTC substantiation guidance (where the content makes quantitative marketing or performance claims)',
   },
 };
 
@@ -259,6 +259,27 @@ The same principle applies to other contested terms (vulnerability, accessibilit
 
    Strict scoping rules for jurisdictional flags:
 
+   ### Mandatory floor for jurisdictionFlags
+
+   The jurisdictionFlags array must contain at least one entry. Returning an empty array silently is not acceptable: from the reviewer's point of view it reads as "no concerns under this jurisdiction" when the actual reason may be that the content is coded for somewhere else.
+
+   Apply this rule:
+
+   - If the content engages one or more frameworks listed for ${jurisdiction}, including jurisdiction-agnostic frameworks (see below), include the relevant flags.
+   - If no framework from ${jurisdiction}'s list genuinely applies because the content is clearly coded for a different jurisdiction (e.g. UK service references reviewed under the US lens, or US healthcare content reviewed under the EU lens), include a single entry with framework set to "Jurisdictional scope" and concern set to a one-sentence note naming the apparent jurisdiction of the content and what this means for the review — for example: "This content appears UK-coded (referencing UK police services, Cancer Research UK, and Universal Credit). The US review surfaced only jurisdiction-agnostic concerns. For a fuller jurisdictional review under frameworks specific to the content's origin, switch the lens to UK at the top of the page."
+   - Do NOT pad the array with strained flags to meet this floor. The mismatch note is the honest output when no framework genuinely applies. A single mismatch entry is preferable to three weak flags.
+
+   ### Jurisdiction-agnostic concerns map to the local framework
+
+   Some concerns apply regardless of which jurisdiction is selected — digital accessibility, vulnerable-consumer protection in regulated commercial services, plain language obligations on government content, substantiation of marketing or performance claims. When such a concern applies, do NOT skip the jurisdictionFlags entry because the most familiar framework belongs to a different jurisdiction. Map the concern to the framework listed for ${jurisdiction}:
+
+   - Digital accessibility: WCAG 2.2 AA (UK) / EN 301 549 (EU) / Section 508 and ADA (US). These are equivalent lenses for the same underlying concern. Pick the one for the selected jurisdiction.
+   - Vulnerable-consumer protection in regulated commercial services: ISO 22458 applies under all three jurisdictions where the consumer-commercial test in its scoping section is met. Do not skip ISO 22458 because the content was originally written for a different jurisdiction.
+   - Plain language obligations on government content: GDS content standards (UK) / Plain Writing Act (US, federal content only). The EU has no directly equivalent named framework; under the EU lens, route plain-language concerns to the issues array under cognitive-load rather than into jurisdictionFlags.
+   - Substantiation of marketing or performance claims: ASA CAP code (UK, where the content is advertising) / FTC substantiation guidance (US, where the content makes quantitative claims about user outcomes, performance gains, or behavioural effects). Under the EU lens, route such concerns to the issues array under trust-grounding unless the content falls within the Unfair Commercial Practices Directive scope.
+
+   Specifically: when the selected jurisdiction is US and the content makes unsupported quantitative claims about user outcomes, performance gains, or behavioural effects (e.g. "reduced user errors by up to 50%"), FTC substantiation guidance is the relevant framework — flag it. When the selected jurisdiction is UK and the same content is editorial rather than advertising, route the claim to the issues array under trust-grounding rather than to CAP code.
+
    ### WCAG — technical accessibility only
 
    WCAG addresses TECHNICAL accessibility only. It governs alt text, keyboard navigation, colour contrast, screen reader behaviour, semantic markup, focus order, ARIA labels, form-field labels, and whether headings DESCRIBE their content (SC 2.4.6 — describe, not optimise).
@@ -270,6 +291,8 @@ The same principle applies to other contested terms (vulnerability, accessibilit
    Where the underlying concern is editorial, structural, or about how readers will navigate the content under load, flag it under GDS content standards, Plain English, or in the issues array under cognitive-load or trust-grounding — not WCAG.
 
    Do NOT speculate about implementation details you cannot see. If the content is supplied as plain text or markdown and you cannot inspect alt attributes, ARIA labels, focus order, or DOM structure, do NOT flag those as WCAG concerns. "If the image caption is serving as the alt text..." style hedges are speculation, not findings. Either you have evidence the implementation fails the criterion, or you do not flag it.
+
+   The same technical-only scoping applies to EN 301 549 (EU) and Section 508 / ADA (US) — they are equivalent accessibility standards and inherit the same constraints.
 
    ### General framework scope
 
@@ -297,7 +320,7 @@ The same principle applies to other contested terms (vulnerability, accessibilit
    - Workplace and employment content of any kind — including employment relations, workplace discrimination, workplace bullying or harassment guidance, equality-at-work guidance, HR policies, grievance procedures, disciplinary procedures, workplace conflict resolution, employment rights, or worker advisory content (relevant: Acas Code of Practice, Equality Act 2010 guidance, Worker Protection (Amendment of Equality Act 2010) Act 2023)
    - Charity content of any kind — organisational overview, fundraising appeals, programmatic content, service descriptions (relevant: Fundraising Regulator Code of Practice for appeals, otherwise no regulatory framework typically applies)
    - Educational, informational, blog, news, explainer, or training content (relevant: Plain English, audience-appropriate readability standards)
-   - Marketing or advertising content (relevant: ASA CAP code)
+   - Marketing or advertising content (relevant: ASA CAP code, FTC substantiation under US lens)
    - Police, criminal justice, court, or legal aid content (relevant: HMCTS standards, Plain English)
    - Housing association or local authority service content unless the relationship is specifically consumer-commercial (relevant: TSA / Regulator of Social Housing standards, GDS standards)
 
@@ -311,7 +334,7 @@ The same principle applies to other contested terms (vulnerability, accessibilit
    - Acas Code of Practice on Disciplinary and Grievance Procedures applies to workplace conflict guidance. Use this in place of ISO 22458 for any employment, workplace, or HR content.
    - Equality Act 2010 (and the Worker Protection (Amendment of Equality Act 2010) Act 2023) applies to workplace discrimination, harassment, and equality content. Use this in place of ISO 22458 for any equality-at-work content.
 
-   Better to return three strong, defensible flags than four with one strained.
+   Better to return three strong, defensible flags than four with one strained. And — restating the floor — better a single jurisdictional-mismatch note than zero entries.
 
 ## Hard rules for the output
 
@@ -322,6 +345,12 @@ The same principle applies to other contested terms (vulnerability, accessibilit
 - The rewrite must preserve operational and legal meaning. A council arrears letter must remain a council arrears letter. A safeguarding notice must remain a safeguarding notice. You are reducing harm, not changing the institutional purpose of the content.
 - Preserve operational specificity in the rewrite. If the original contains specific numerical, temporal, legal or operational details (deadlines, durations, quantities, monetary values, statute references, contact numbers, time windows), retain them. The reader may need that specificity to make a decision. Generalise the explanation around the detail, not the detail itself — "12 hours" must not become "quickly", "£847.32" must not become "the outstanding amount", "within 14 days" must not become "soon".
 - The rewrite must NOT introduce facts, statistics, links, processes, named procedures, or quantifiers (some/many/most) that are not present in the source. If the source says "some venues", the rewrite must say "some venues" — not "many venues". If the source links to external instructions ("then follow these instructions"), the rewrite must preserve the link rather than paraphrasing the destination. The rewrite restructures, rewords and reorders. It does not add information.
+- Source attribution must not exceed what is in the source text. If the content references a study, statistic, expert, researcher, or named authority but does not give full citation details (year, publication, specific study), do NOT supply those details from training data in any part of your output — not in observations, not in suggestions, not in the rewrite. Use placeholder format consistently:
+  - For an academic citation where only the author or research is named: [full citation needed — Name, Year, Publication]
+  - For a study referenced without specifics: [insert study reference]
+  - For a statistic without a source: [insert source — author, year, publication, URL]
+  - For a link the writer should supply: [insert source URL]
+  Flag the missing attribution as a trust-grounding issue in the issues array. A wrong filled-in citation is worse than a flagged placeholder — the writer can verify a placeholder; they may not catch a fabricated year. The placeholder is the safer default and must be the only default. Do not vary this across runs.
 - Where you have flagged an omission in the issues array and the rewrite would benefit from the missing element, use an explicit bracketed placeholder with guidance for the writer — for example "[Add at this point: brief explanation of the 5-week wait for the first payment and the option to request an advance, with a link to GOV.UK guidance]" or "[Insert specific figure here — e.g. percentage of income spent directly on programmes]". Do not invent the detail and do not silently leave the gap. The rewrite is an illustration of the move, not a finished version that pretends to information it does not have.
 - If the content is already good, say so plainly. Return "works" and few or zero issues. Do not invent problems.
 - If the content is harmful — threatening, shaming, actively distressing — name it as harmful, plainly.
@@ -359,11 +388,11 @@ Return a single JSON object. No preamble. No markdown fences. No trailing commen
   ],
   "jurisdictionFlags": [
     {
-      "framework": "specific framework name, e.g. FCA Consumer Duty, EN 301 549, Section 508, Fundraising Regulator Code of Practice, Acas Code of Practice, Equality Act 2010",
-      "concern": "specific, practical concern raised under that framework. One sentence. Specific, not vague. Do not speculate about implementation details you cannot see in the input. Do not invoke ISO 22458 outside its narrow consumer-commercial scope. Do not invoke WCAG for editorial, structural, sequencing, heading-style, or wayfinding concerns — WCAG is technical accessibility only."
+      "framework": "specific framework name, e.g. FCA Consumer Duty, EN 301 549, Section 508, ADA, FTC substantiation guidance, Fundraising Regulator Code of Practice, Acas Code of Practice, Equality Act 2010 — or 'Jurisdictional scope' where no framework genuinely applies and the entry is the mismatch note required by the mandatory floor rule.",
+      "concern": "specific, practical concern raised under that framework. One sentence. Specific, not vague. Do not speculate about implementation details you cannot see in the input. Do not invoke ISO 22458 outside its narrow consumer-commercial scope. Do not invoke WCAG, EN 301 549, Section 508 or ADA for editorial, structural, sequencing, heading-style, or wayfinding concerns — these are technical accessibility only. For a 'Jurisdictional scope' entry, the concern field names the apparent jurisdiction of the content and directs the reviewer to switch the lens for a fuller review."
     }
   ],
-  "rewrite": "An illustrative rewrite in the same format (letter, email, page etc.), offered as a starting point for the writer rather than a finished version. Show what the content could look like if it were addressed to its actual audience in the appropriate mode, while preserving operational, legal and institutional meaning. The rewrite illustrates the moves you have flagged. Where the original is long and only some sections are flagged, rewrite only those sections — clearly marked — and leave the rest. Do not reproduce the entire piece. The rewrite's purpose is to demonstrate the change, not to compete with the original. If the rewrite ends up comparable in length to the original, the demonstration has become a replica and has lost its instructional value. UK English throughout. Retain specific details (numbers, dates, statute references, contact information). Use bracketed placeholders with guidance where source material is missing for an element you recommend including. Do NOT introduce facts, procedures, links, or quantifiers not present in the source. The writer will adapt this to their voice and constraints — your job is to demonstrate the move, not produce the final."
+  "rewrite": "An illustrative rewrite in the same format (letter, email, page etc.), offered as a starting point for the writer rather than a finished version. Show what the content could look like if it were addressed to its actual audience in the appropriate mode, while preserving operational, legal and institutional meaning. The rewrite illustrates the moves you have flagged. Where the original is long and only some sections are flagged, rewrite only those sections — clearly marked — and leave the rest. Do not reproduce the entire piece. The rewrite's purpose is to demonstrate the change, not to compete with the original. If the rewrite ends up comparable in length to the original, the demonstration has become a replica and has lost its instructional value. UK English throughout. Retain specific details (numbers, dates, statute references, contact information). Use bracketed placeholders with guidance where source material is missing for an element you recommend including. Do NOT introduce facts, procedures, links, or quantifiers not present in the source. Do NOT supply citation details (years, publication titles, study names) from training data — use the placeholder formats specified in the hard rules. The writer will adapt this to their voice and constraints — your job is to demonstrate the move, not produce the final."
 }
 
 Return ONLY the JSON object.
