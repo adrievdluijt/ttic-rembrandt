@@ -2,11 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 
 // =============================================================================
 // VERSION & CONFIG
-// Edit these constants to update the version stamp and feedback channel.
+// Edit these constants to update the version stamp.
 // =============================================================================
 const VERSION = 'v0.9';
 const VERSION_DATE = '10 May 2026';
-const FEEDBACK_URL = 'mailto:adrie@traumainformedcontent.com?subject=Rembrandt%20Editor%20feedback';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
@@ -96,13 +95,25 @@ Yours faithfully,
 Revenues Department`;
 
 // =============================================================================
+// FEEDBACK CONFIG
+// =============================================================================
+const FEEDBACK_CATEGORIES = [
+  { value: 'bug',        label: 'Bug — something is broken' },
+  { value: 'unexpected', label: 'Unexpected output — the review surprised me' },
+  { value: 'feature',    label: 'Feature request — something missing' },
+  { value: 'general',    label: 'General — anything else' },
+];
+
+const FEEDBACK_SEVERITIES = [
+  { value: 'blocker',  label: 'Blocker' },
+  { value: 'annoying', label: 'Annoying' },
+  { value: 'minor',    label: 'Minor' },
+];
+
+const FEEDBACK_MESSAGE_MAX = 5000;
+
+// =============================================================================
 // READING-AGE CONTEXT
-// Derives an audience-contextual reading-age target from the contentType
-// string returned by the backend. Returns null when no mode signal matches —
-// in which case the UI displays the bare grade number without commentary.
-// The backend prompt requires contentType to include a mode signal such as
-// "(service content)" or "(organisational overview)" so the match below
-// should fire for any well-classified review.
 // =============================================================================
 const getReadingAgeContext = (readingAge, contentType) => {
   const t = (contentType || '').toLowerCase();
@@ -225,9 +236,20 @@ export default function App() {
   const [reviewPhase, setReviewPhase] = useState(-1);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  // Feedback modal state
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState('');
+  const [feedbackSeverity, setFeedbackSeverity] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackEmail, setFeedbackEmail] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackError, setFeedbackError] = useState(null);
+
   const textareaRef = useRef(null);
   const resultsHeadingRef = useRef(null);
   const pdfInputRef = useRef(null);
+  const feedbackFirstFieldRef = useRef(null);
 
   const PHASES = [
     { label: 'Detecting content type and reader stage', ms: 2000 },
@@ -252,24 +274,40 @@ export default function App() {
     } catch (e) { /* ignore */ }
   }, []);
 
-useEffect(() => {
-  if (!loading) {
-    setReviewPhase(-1);
-    return;
-  }
-  setReviewPhase(0);
-  let cumulative = 0;
-  // Schedule timers for every phase EXCEPT the last one. The last phase
-  // stays "current" until the API actually returns, instead of ticking
-  // complete on a timer and leaving a confusing dead period where every
-  // phase shows ✓ but nothing happens.
-  const timers = PHASES.slice(0, -1).map((p, i) => {
-    cumulative += p.ms;
-    return setTimeout(() => setReviewPhase(i + 1), cumulative);
-  });
-  return () => timers.forEach(clearTimeout);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [loading, jurisdiction]);
+  // ESC key closes feedback modal
+  useEffect(() => {
+    if (!feedbackOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') closeFeedback(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedbackOpen]);
+
+  // Focus first feedback field when modal opens
+  useEffect(() => {
+    if (feedbackOpen && !feedbackSent) {
+      setTimeout(() => feedbackFirstFieldRef.current?.focus(), 50);
+    }
+  }, [feedbackOpen, feedbackSent]);
+
+  useEffect(() => {
+    if (!loading) {
+      setReviewPhase(-1);
+      return;
+    }
+    setReviewPhase(0);
+    let cumulative = 0;
+    // Schedule timers for every phase EXCEPT the last one. The last phase
+    // stays "current" until the API actually returns, instead of ticking
+    // complete on a timer and leaving a confusing dead period where every
+    // phase shows ✓ but nothing happens.
+    const timers = PHASES.slice(0, -1).map((p, i) => {
+      cumulative += p.ms;
+      return setTimeout(() => setReviewPhase(i + 1), cumulative);
+    });
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, jurisdiction]);
 
   const dismissAbout = () => {
     setAboutDismissed(true);
@@ -433,6 +471,86 @@ useEffect(() => {
     } catch (e) { console.error(e); }
   };
 
+  // --- Feedback handling ---
+  const openFeedback = () => {
+    setFeedbackOpen(true);
+    setMobileNavOpen(false);
+  };
+
+  const closeFeedback = () => {
+    setFeedbackOpen(false);
+    // Reset state after a short delay so the closing animation doesn't show empty fields
+    setTimeout(() => {
+      setFeedbackCategory('');
+      setFeedbackSeverity('');
+      setFeedbackMessage('');
+      setFeedbackEmail('');
+      setFeedbackError(null);
+      setFeedbackSent(false);
+    }, 200);
+  };
+
+  const sendAnother = () => {
+    setFeedbackCategory('');
+    setFeedbackSeverity('');
+    setFeedbackMessage('');
+    setFeedbackEmail('');
+    setFeedbackError(null);
+    setFeedbackSent(false);
+  };
+
+  const canSubmitFeedback =
+    feedbackCategory && feedbackSeverity && feedbackMessage.trim() && !feedbackSubmitting;
+
+  const submitFeedback = async () => {
+    if (!canSubmitFeedback) return;
+
+    setFeedbackSubmitting(true);
+    setFeedbackError(null);
+
+    // Build a document snapshot — first 500 chars of text or PDF filename
+    let documentSnapshot = null;
+    let documentType = 'none';
+    if (content) {
+      documentSnapshot = content.slice(0, 500);
+      documentType = 'text';
+    } else if (pdfFile) {
+      documentSnapshot = pdfFile.name;
+      documentType = 'pdf';
+    }
+
+    try {
+      const response = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: feedbackCategory,
+          severity: feedbackSeverity,
+          message: feedbackMessage.trim(),
+          email: feedbackEmail.trim() || null,
+          document_snapshot: documentSnapshot,
+          document_type: documentType,
+          jurisdiction,
+          app_version: VERSION,
+          user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Could not send feedback. Please try again.');
+      }
+
+      setFeedbackSent(true);
+      setAnnouncement('Feedback sent. Thank you.');
+    } catch (e) {
+      console.error(e);
+      setFeedbackError(e.message || 'Something went wrong. Please try again.');
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
   const severityMeta = (sev) => {
     if (sev === 'attention') return { dot: PALETTE.attention, bg: '#FCEAE3', label: 'Attention' };
     if (sev === 'consider')  return { dot: PALETTE.consider,  bg: '#DDF0F9', label: 'Consider'  };
@@ -508,19 +626,20 @@ useEffect(() => {
     .rb-tagline { font-size: 13px; color: var(--muted); margin-top: 4px; letter-spacing: 0.005em; }
 
     .rb-nav { display: flex; align-items: center; gap: 4px; font-size: 14px; }
-    .rb-nav a {
+    .rb-nav a, .rb-nav .rb-nav-feedback-btn {
       color: var(--muted); text-decoration: none;
       padding: 8px 14px; border-radius: 999px;
       transition: background 0.15s ease, color 0.15s ease;
+      background: transparent; border: none; font-family: inherit; font-size: inherit;
     }
-    .rb-nav a:hover { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
-    .rb-nav a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-    .rb-nav-feedback {
+    .rb-nav a:hover, .rb-nav .rb-nav-feedback-btn:hover { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
+    .rb-nav a:focus-visible, .rb-nav .rb-nav-feedback-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-nav-feedback-btn {
       color: var(--ink) !important; font-weight: 600;
-      border: 1px solid var(--ink); border-radius: 999px;
+      border: 1px solid var(--ink) !important; border-radius: 999px;
       margin-left: 6px;
     }
-    .rb-nav-feedback:hover { background: var(--ink) !important; color: var(--surface) !important; }
+    .rb-nav-feedback-btn:hover { background: var(--ink) !important; color: var(--surface) !important; }
     .rb-nav-toggle {
       display: none;
       background: transparent; border: 1px solid var(--rule);
@@ -537,8 +656,8 @@ useEffect(() => {
         padding: 8px; border-radius: 12px;
         box-shadow: 0 16px 40px rgba(10,61,110,0.12); gap: 0;
       }
-      .rb-nav.rb-nav-open a { padding: 12px 16px; border-radius: 6px; }
-      .rb-nav-feedback { margin-left: 0 !important; margin-top: 4px; text-align: center; }
+      .rb-nav.rb-nav-open a, .rb-nav.rb-nav-open .rb-nav-feedback-btn { padding: 12px 16px; border-radius: 6px; text-align: left; }
+      .rb-nav-feedback-btn { margin-left: 0 !important; margin-top: 4px; text-align: center !important; }
     }
 
     /* ---- Jurisdiction row ---- */
@@ -581,7 +700,7 @@ useEffect(() => {
       .rb-logo { width: 38px; height: 38px; }
     }
 
-    /* ---- About / intro section (more compact) ---- */
+    /* ---- About / intro section ---- */
     .rb-about { max-width: 1280px; margin: 18px auto 0; padding: 0 32px; }
     .rb-about-inner {
       background: var(--panel); border-radius: 12px;
@@ -683,7 +802,7 @@ useEffect(() => {
     .rb-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
     .rb-textarea[aria-invalid="true"] { border-color: var(--coral); }
 
-    /* ---- PDF card (replaces textarea when a PDF is loaded) ---- */
+    /* ---- PDF card ---- */
     .rb-pdf-card {
       width: 100%; min-height: 220px;
       border: 1px solid var(--rule); border-radius: 8px;
@@ -929,6 +1048,12 @@ useEffect(() => {
     .rb-footer-links a { color: var(--muted); text-decoration: none; padding: 4px 0; }
     .rb-footer-links a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
     .rb-footer-links-label { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 4px; }
+    .rb-footer-feedback-btn {
+      background: transparent; border: none; padding: 0;
+      font: inherit; color: inherit;
+      text-decoration: underline; text-underline-offset: 3px;
+      cursor: pointer;
+    }
     .rb-footer-meta {
       grid-column: 1 / -1;
       padding-top: 20px; margin-top: 12px;
@@ -942,6 +1067,171 @@ useEffect(() => {
       font-variant-numeric: tabular-nums;
     }
 
+    /* ---- Feedback modal ---- */
+    .rb-feedback-overlay {
+      position: fixed; inset: 0;
+      background: rgba(6, 40, 71, 0.5);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px; z-index: 100;
+      animation: rb-fade 0.2s ease;
+    }
+    .rb-feedback-modal {
+      background: var(--surface); border-radius: 12px;
+      padding: 28px 28px 24px;
+      width: 100%; max-width: 520px; max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(10, 61, 110, 0.25);
+      position: relative;
+    }
+    .rb-feedback-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 18px;
+    }
+    .rb-feedback-title {
+      font-size: 22px; margin: 0; color: var(--ink);
+    }
+    .rb-feedback-intro {
+      font-size: 13px; color: var(--muted); margin: -8px 0 18px;
+      line-height: 1.5;
+    }
+    .rb-feedback-close {
+      background: transparent; border: none;
+      font-size: 28px; line-height: 1;
+      color: var(--muted); padding: 0 8px;
+    }
+    .rb-feedback-close:hover { color: var(--ink); }
+    .rb-feedback-close:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+    .rb-feedback-field { margin-bottom: 16px; }
+    .rb-feedback-field label {
+      display: block; font-size: 13px; font-weight: 500;
+      color: var(--ink); margin-bottom: 6px;
+    }
+    .rb-feedback-field label .rb-feedback-optional {
+      font-weight: 400; color: var(--muted); font-style: italic;
+    }
+    .rb-feedback-field select,
+    .rb-feedback-field input,
+    .rb-feedback-field textarea {
+      width: 100%; padding: 10px 14px;
+      border: 1px solid var(--rule); border-radius: 8px;
+      background: var(--surface);
+      font-size: 14px; line-height: 1.5; color: var(--ink);
+      outline: none; font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .rb-feedback-field textarea {
+      min-height: 100px; resize: vertical;
+    }
+    .rb-feedback-field select:focus,
+    .rb-feedback-field input:focus,
+    .rb-feedback-field textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15);
+    }
+    .rb-feedback-char-count {
+      font-size: 11px; color: var(--muted); text-align: right;
+      margin-top: 4px;
+    }
+    .rb-feedback-char-count.rb-over { color: var(--coral); }
+    .rb-feedback-severity-group {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .rb-feedback-severity-btn {
+      flex: 1; min-width: 90px;
+      padding: 10px 12px;
+      border: 1px solid var(--rule);
+      background: var(--surface); color: var(--ink);
+      border-radius: 8px;
+      font-size: 13px; font-weight: 500;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .rb-feedback-severity-btn:hover:not([aria-pressed="true"]) {
+      border-color: var(--ink); background: rgba(10, 61, 110, 0.04);
+    }
+    .rb-feedback-severity-btn[aria-pressed="true"][data-severity="blocker"] {
+      background: var(--coral); border-color: var(--coral); color: white;
+    }
+    .rb-feedback-severity-btn[aria-pressed="true"][data-severity="annoying"] {
+      background: var(--sky); border-color: var(--sky); color: white;
+    }
+    .rb-feedback-severity-btn[aria-pressed="true"][data-severity="minor"] {
+      background: var(--sage); border-color: var(--sage); color: white;
+    }
+    .rb-feedback-severity-btn:focus-visible {
+      outline: 2px solid var(--primary); outline-offset: 2px;
+    }
+    .rb-feedback-context {
+      background: var(--panel); border-radius: 8px;
+      padding: 10px 14px; margin-bottom: 18px;
+      font-size: 13px;
+    }
+    .rb-feedback-context summary {
+      cursor: pointer; font-weight: 500; color: var(--ink);
+      list-style: none;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .rb-feedback-context summary::-webkit-details-marker { display: none; }
+    .rb-feedback-context summary::before {
+      content: '▸'; transition: transform 0.15s ease;
+      font-size: 11px; color: var(--muted);
+    }
+    .rb-feedback-context[open] summary::before { transform: rotate(90deg); }
+    .rb-feedback-context summary:hover { color: var(--primary); }
+    .rb-feedback-context ul {
+      margin: 10px 0 0; padding-left: 20px;
+      color: var(--muted);
+    }
+    .rb-feedback-context li {
+      margin-bottom: 4px; font-size: 12px; word-wrap: break-word;
+    }
+    .rb-feedback-error {
+      padding: 12px 16px; background: #FCEAE3;
+      border: 1px solid var(--coral); border-radius: 8px;
+      color: ${PALETTE.harm}; font-size: 13px; line-height: 1.55;
+      margin-bottom: 14px;
+    }
+    .rb-feedback-actions {
+      display: flex; gap: 10px; justify-content: flex-end;
+      margin-top: 18px;
+    }
+    .rb-feedback-cancel {
+      background: transparent; border: 1px solid var(--rule);
+      color: var(--muted);
+      padding: 10px 18px; border-radius: 8px;
+      font-size: 14px; font-weight: 500;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .rb-feedback-cancel:hover { border-color: var(--ink); color: var(--ink); }
+    .rb-feedback-cancel:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-feedback-submit {
+      background: var(--ink); color: var(--surface); border: none;
+      padding: 10px 22px; border-radius: 8px;
+      font-size: 14px; font-weight: 600;
+      transition: background 0.15s ease;
+    }
+    .rb-feedback-submit:hover:not(:disabled) { background: var(--ink-deep); }
+    .rb-feedback-submit:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-feedback-success { text-align: center; padding: 12px 0 6px; }
+    .rb-feedback-success-title {
+      font-family: 'Rethink Sans', sans-serif;
+      font-weight: 600; font-size: 18px; color: var(--ink);
+      margin: 0 0 8px;
+    }
+    .rb-feedback-success-body {
+      font-size: 14px; color: var(--muted);
+      margin: 0 0 22px; line-height: 1.5;
+    }
+    .rb-feedback-success-actions {
+      display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+    }
+    @media (max-width: 600px) {
+      .rb-feedback-modal { padding: 22px 20px 20px; max-height: 95vh; }
+      .rb-feedback-actions { flex-direction: column-reverse; }
+      .rb-feedback-cancel, .rb-feedback-submit { width: 100%; }
+    }
+
     /* ---- Animation ---- */
     .rb-fade { animation: rb-fade 0.4s ease; }
     @keyframes rb-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -950,13 +1240,13 @@ useEffect(() => {
     .rb-dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes rb-blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
     .rb-phase-active {
-  display: inline-block;
-  animation: rb-phase-pulse 1.4s ease-in-out infinite;
-}
-@keyframes rb-phase-pulse {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50%      { opacity: 1;   transform: scale(1.15); }
-}
+      display: inline-block;
+      animation: rb-phase-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes rb-phase-pulse {
+      0%, 100% { opacity: 0.4; transform: scale(1); }
+      50%      { opacity: 1;   transform: scale(1.15); }
+    }
   `;
 
   const frameworkTone = (idx) => ['coral', 'sky', 'sage', 'coral', 'sky'][idx % 5];
@@ -966,6 +1256,9 @@ useEffect(() => {
   const readingAgeCtx = results?.overall?.readingAge
     ? getReadingAgeContext(results.overall.readingAge, results.overall.contentType)
     : null;
+
+  // Document type label for the feedback context disclosure
+  const feedbackDocLabel = content ? 'text input' : pdfFile ? `PDF (${pdfFile.name})` : 'none';
 
   return (
     <div className="rb-root">
@@ -1002,7 +1295,9 @@ useEffect(() => {
                   {link.label}
                 </a>
               ))}
-              <a href={FEEDBACK_URL} className="rb-nav-feedback">Send feedback</a>
+              <button type="button" onClick={openFeedback} className="rb-nav-feedback-btn">
+                Send feedback
+              </button>
             </nav>
           </div>
         </div>
@@ -1222,8 +1517,8 @@ useEffect(() => {
                     return (
                       <li key={i} className={cls}>
                         <span className="rb-phase-marker" aria-hidden="true">
-  {done ? '✓' : current ? <span className="rb-phase-active">●</span> : '·'}
-</span>
+                          {done ? '✓' : current ? <span className="rb-phase-active">●</span> : '·'}
+                        </span>
                         {p.label}
                       </li>
                     );
@@ -1363,7 +1658,7 @@ useEffect(() => {
               <strong>Rembrandt Editor</strong> reviews content through a trauma-informed lens. It is not a compliance tool, a legal adjudicator or a replacement for testing with the people the content is for. It flags plausible concerns. You decide what to do about them.
             </p>
             <p>
-              Built and maintained by <a href="https://traumainformedcontent.com" target="_blank" rel="noopener noreferrer">Trauma-Informed Content Consulting</a>. <a href={FEEDBACK_URL}>Send feedback</a>.
+              Built and maintained by <a href="https://traumainformedcontent.com" target="_blank" rel="noopener noreferrer">Trauma-Informed Content Consulting</a>. <button type="button" onClick={openFeedback} className="rb-footer-feedback-btn">Send feedback</button>.
             </p>
           </div>
 
@@ -1386,6 +1681,143 @@ useEffect(() => {
           </div>
         </div>
       </footer>
+
+      {feedbackOpen && (
+        <div className="rb-feedback-overlay" onClick={closeFeedback}>
+          <div
+            className="rb-feedback-modal"
+            role="dialog"
+            aria-labelledby="feedback-title"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="rb-feedback-header">
+              <h2 id="feedback-title" className="rb-display rb-feedback-title">
+                {feedbackSent ? 'Feedback sent' : 'Send feedback'}
+              </h2>
+              <button
+                type="button" onClick={closeFeedback}
+                aria-label="Close feedback form" className="rb-feedback-close"
+              >×</button>
+            </div>
+
+            {feedbackSent ? (
+              <div className="rb-feedback-success">
+                <p className="rb-feedback-success-title">Thanks — that's logged.</p>
+                <p className="rb-feedback-success-body">
+                  You can close this, or send another bit of feedback if you have more.
+                </p>
+                <div className="rb-feedback-success-actions">
+                  <button type="button" onClick={sendAnother} className="rb-feedback-cancel">
+                    Send another
+                  </button>
+                  <button type="button" onClick={closeFeedback} className="rb-feedback-submit">
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="rb-feedback-intro">
+                  Tell us what's working, what isn't, or what's missing. This goes straight to the team — no public form, no autoresponder.
+                </p>
+
+                <div className="rb-feedback-field">
+                  <label htmlFor="feedback-category">What kind of feedback is this?</label>
+                  <select
+                    id="feedback-category"
+                    ref={feedbackFirstFieldRef}
+                    value={feedbackCategory}
+                    onChange={(e) => setFeedbackCategory(e.target.value)}
+                  >
+                    <option value="">Choose one...</option>
+                    {FEEDBACK_CATEGORIES.map(c => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="rb-feedback-field">
+                  <span className="rb-feedback-label" id="feedback-severity-label" style={{display: 'block', fontSize: 13, fontWeight: 500, color: PALETTE.ink, marginBottom: 6}}>
+                    How serious is it?
+                  </span>
+                  <div className="rb-feedback-severity-group" role="group" aria-labelledby="feedback-severity-label">
+                    {FEEDBACK_SEVERITIES.map(s => (
+                      <button
+                        key={s.value}
+                        type="button"
+                        onClick={() => setFeedbackSeverity(s.value)}
+                        aria-pressed={feedbackSeverity === s.value}
+                        data-severity={s.value}
+                        className="rb-feedback-severity-btn"
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rb-feedback-field">
+                  <label htmlFor="feedback-message">What happened, or what would you like?</label>
+                  <textarea
+                    id="feedback-message"
+                    value={feedbackMessage}
+                    onChange={(e) => setFeedbackMessage(e.target.value)}
+                    placeholder="Be as specific as you can. If it's about a particular review, what content were you looking at and what was off?"
+                    maxLength={FEEDBACK_MESSAGE_MAX + 100}
+                  />
+                  <div className={`rb-feedback-char-count${feedbackMessage.length > FEEDBACK_MESSAGE_MAX ? ' rb-over' : ''}`}>
+                    {feedbackMessage.length > FEEDBACK_MESSAGE_MAX
+                      ? `${feedbackMessage.length - FEEDBACK_MESSAGE_MAX} characters over limit`
+                      : `${feedbackMessage.length} / ${FEEDBACK_MESSAGE_MAX}`}
+                  </div>
+                </div>
+
+                <div className="rb-feedback-field">
+                  <label htmlFor="feedback-email">
+                    Your email <span className="rb-feedback-optional">(optional — only if you'd like a reply)</span>
+                  </label>
+                  <input
+                    id="feedback-email"
+                    type="email"
+                    value={feedbackEmail}
+                    onChange={(e) => setFeedbackEmail(e.target.value)}
+                    placeholder="you@example.com"
+                  />
+                </div>
+
+                <details className="rb-feedback-context">
+                  <summary>What gets sent with this</summary>
+                  <ul>
+                    <li>Document being reviewed: {feedbackDocLabel}</li>
+                    <li>Jurisdiction selected: {jurisdiction}</li>
+                    <li>App version: {VERSION}</li>
+                    <li>Your browser (for debugging)</li>
+                  </ul>
+                </details>
+
+                {feedbackError && (
+                  <div className="rb-feedback-error" role="alert">{feedbackError}</div>
+                )}
+
+                <div className="rb-feedback-actions">
+                  <button type="button" onClick={closeFeedback} className="rb-feedback-cancel">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitFeedback}
+                    disabled={!canSubmitFeedback || feedbackMessage.length > FEEDBACK_MESSAGE_MAX}
+                    className="rb-feedback-submit"
+                  >
+                    {feedbackSubmitting ? 'Sending...' : 'Send feedback'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
