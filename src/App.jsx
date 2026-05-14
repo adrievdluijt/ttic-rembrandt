@@ -82,6 +82,7 @@ const NAV_LINKS = [
   { label: 'Resources',                         href: `${SITE}/resources/` },
     { label: 'Pricing',                         href: `${SITE}/rembrandt-editor-plus/` },
   { label: 'About',                             href: `${SITE}/about-us/` },
+    { label: 'Contact',                             href: `${SITE}/contact-us/` },
 ];
 
 const EXAMPLE = `Dear Occupier,
