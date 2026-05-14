@@ -1504,7 +1504,7 @@ export default function App() {
                 </p>
                                 <div className="rb-empty-divider" aria-hidden="true" />
                                 <p className="rb-empty-body">
-                  <a href="https://traumainformationcontent.com/rembrandt-editor-plus"><i>Team plans ></i></a>                
+                  <a href="https://traumainformedcontent.com/rembrandt-editor-plus/"><i>Team plans ></i></a>                
                                 </p>
               </div>
             </div>
