@@ -1674,7 +1674,7 @@ export default function App() {
             <a href={`${SITE}/resources/`} target="_blank" rel="noopener noreferrer">Resources</a>
             <a href={`${SITE}/about-us/`} target="_blank" rel="noopener noreferrer">About</a>
                         <a href={`${SITE}/rembrandt-editor-plus/`} target="_blank" rel="noopener noreferrer">Pricing</a>
-            <a href={`${SITE}/contact-us-2/`} target="_blank" rel="noopener noreferrer">Contact</a>
+            <a href={`${SITE}/contact-us/`} target="_blank" rel="noopener noreferrer">Contact</a>
           </div>
 
           <div className="rb-footer-meta">
