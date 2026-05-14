@@ -1502,8 +1502,9 @@ export default function App() {
                 <p className="rb-empty-body">
                   Rembrandt Editor reads for the person who is tired, frightened, grieving, in pain or simply having a difficult day. That is most readers, most of the time.
                 </p>
+                                <div className="rb-empty-divider" aria-hidden="true" />
                                 <p className="rb-empty-body">
-                  <a href="https://traumainformationcontent.com/rembrandt-editor-plus">Team plans ></a>                
+                  <a href="https://traumainformationcontent.com/rembrandt-editor-plus"><i></i>Team plans ></i></a>                
                                 </p>
               </div>
             </div>
