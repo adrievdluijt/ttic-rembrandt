@@ -80,9 +80,10 @@ const SITE = 'https://traumainformedcontent.com';
 const NAV_LINKS = [
   { label: 'What is trauma-informed content?', href: `${SITE}/what-is-trauma-informed-content/` },
   { label: 'Resources',                         href: `${SITE}/resources/` },
-    { label: 'Pricing',                         href: `${SITE}/rembrandt-editor-plus/` },
+  { label: 'Pricing',                           href: `${SITE}/rembrandt-editor-plus/` },
+  { label: 'Help',                              href: `${SITE}/help/` },
   { label: 'About',                             href: `${SITE}/about-us/` },
-    { label: 'Contact',                             href: `${SITE}/contact-us/` },
+  { label: 'Contact',                           href: `${SITE}/contact-us/` },
 ];
 
 const EXAMPLE = `Dear Occupier,
@@ -1503,10 +1504,13 @@ export default function App() {
                 <p className="rb-empty-body">
                   Rembrandt Editor reads for the person who is tired, frightened, grieving, in pain or simply having a difficult day. That is most readers, most of the time.
                 </p>
-                                <div className="rb-empty-divider" aria-hidden="true" />
-                                <p className="rb-empty-body">
-                  <a href="https://traumainformedcontent.com/rembrandt-editor-plus/"><i>Team plans →</i></a>                
-                                </p>
+                <div className="rb-empty-divider" aria-hidden="true" />
+                <p className="rb-empty-body">
+                  <a href={`${SITE}/rembrandt-editor-plus/`} target="_blank" rel="noopener noreferrer"><i>Team plans →</i></a>
+                </p>
+                <p className="rb-empty-body" style={{ marginTop: 8 }}>
+                  <a href={`${SITE}/help/`} target="_blank" rel="noopener noreferrer"><i>Help →</i></a>
+                </p>
               </div>
             </div>
           )}
@@ -1673,8 +1677,10 @@ export default function App() {
             <a href={`${SITE}/`} target="_blank" rel="noopener noreferrer">traumainformedcontent.com</a>
             <a href={`${SITE}/what-is-trauma-informed-content/`} target="_blank" rel="noopener noreferrer">What is trauma-informed content?</a>
             <a href={`${SITE}/resources/`} target="_blank" rel="noopener noreferrer">Resources</a>
+            <a href={`${SITE}/help/`} target="_blank" rel="noopener noreferrer">Help</a>
+            <a href={`${SITE}/accessibility/`} target="_blank" rel="noopener noreferrer">Accessibility statement</a>
             <a href={`${SITE}/about-us/`} target="_blank" rel="noopener noreferrer">About</a>
-                        <a href={`${SITE}/rembrandt-editor-plus/`} target="_blank" rel="noopener noreferrer">Pricing</a>
+            <a href={`${SITE}/rembrandt-editor-plus/`} target="_blank" rel="noopener noreferrer">Pricing</a>
             <a href={`${SITE}/contact-us/`} target="_blank" rel="noopener noreferrer">Contact</a>
           </div>
 
