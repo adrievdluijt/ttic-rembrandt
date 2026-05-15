@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // Edit these constants to update the version stamp.
 // =============================================================================
 const VERSION = 'v0.9';
-const VERSION_DATE = '10 May 2026';
+const VERSION_DATE = '15 May 2026';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
@@ -116,6 +116,61 @@ const FEEDBACK_SEVERITIES = [
 const FEEDBACK_MESSAGE_MAX = 5000;
 
 // =============================================================================
+// FLESCH-KINCAID GRADE — deterministic readability calculation
+//
+// Why this exists: large language models cannot reliably compute
+// Flesch-Kincaid grade. The number Sonnet returns on its own is closer to
+// a vibe than a measurement, and the same passage can score differently
+// from one run to the next. The formula is straightforward (words,
+// sentences, syllables) and is calculated here so the displayed grade is
+// stable and Hemingway-comparable. The frontend sends this value to the
+// backend with the request; the backend instructs the model to use it as
+// the canonical reading age in both the readingAge field and any summary
+// reference. For PDFs, the source text is not available here, so the
+// model's own estimate stands as a fallback.
+//
+// Formula: 0.39 × (words / sentences) + 11.8 × (syllables / words) − 15.59
+// =============================================================================
+const countSentences = (text) => {
+  const sentences = text
+    .split(/[.!?]+(?:\s|$)/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return Math.max(sentences.length, 1);
+};
+
+const countWords = (text) => {
+  const words = text.match(/\b[\w'-]+\b/g) || [];
+  return words.length;
+};
+
+const countSyllablesInWord = (word) => {
+  let w = word.toLowerCase().replace(/[^a-z]/g, '');
+  if (w.length === 0) return 0;
+  if (w.length <= 3) return 1;
+  w = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '');
+  w = w.replace(/^y/, '');
+  const matches = w.match(/[aeiouy]{1,2}/g);
+  return matches ? matches.length : 1;
+};
+
+const countSyllables = (text) => {
+  const words = text.match(/\b[\w'-]+\b/g) || [];
+  return words.reduce((sum, word) => sum + countSyllablesInWord(word), 0);
+};
+
+const fleschKincaidGrade = (text) => {
+  if (!text || text.trim().length === 0) return null;
+  const words = countWords(text);
+  const sentences = countSentences(text);
+  const syllables = countSyllables(text);
+  if (words === 0) return null;
+  const grade =
+    0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+  return Math.max(1, Math.round(grade));
+};
+
+// =============================================================================
 // READING-AGE CONTEXT
 // =============================================================================
 const getReadingAgeContext = (readingAge, contentType) => {
@@ -126,13 +181,13 @@ const getReadingAgeContext = (readingAge, contentType) => {
   let targetText = null;
 
   if (t.includes('crisis') || t.includes('emergency')) {
-    target = 9;
+    target = 7;
     modeName = 'crisis or emergency content';
-    targetText = 'aim for grade 7-9';
+    targetText = 'aim for grade 7 or below';
   } else if (t.includes('service content')) {
-    target = 9;
+    target = 8;
     modeName = 'service content';
-    targetText = 'GDS guidance is around grade 9';
+    targetText = 'GDS guidance is around grade 8';
   } else if (t.includes('fundraising') || t.includes('emotional appeal') || t.includes('appeal email') || t.includes('donor')) {
     target = 11;
     modeName = 'fundraising content';
@@ -171,9 +226,9 @@ const buildReviewMarkdown = (results, jurisdiction) => {
       const age = results.overall.readingAge;
       const ctx = getReadingAgeContext(age, results.overall.contentType);
       if (ctx && ctx.exceedsTarget) {
-        lines.push(`**Reading age:** grade ${age} — for ${ctx.modeName}, ${ctx.targetText} (Flesch-Kincaid)`);
+        lines.push(`**Reading age:** grade ${age} — for ${ctx.modeName}, ${ctx.targetText} (Flesch-Kincaid, matches Hemingway scoring)`);
       } else {
-        lines.push(`**Reading age:** grade ${age} (Flesch-Kincaid)`);
+        lines.push(`**Reading age:** grade ${age} (Flesch-Kincaid, matches Hemingway scoring)`);
       }
     }
     if (results.overall.contextApplied) lines.push(`**Context applied:** ${results.overall.contextApplied}`);
@@ -407,10 +462,19 @@ export default function App() {
     // to the notes field don't desync from the displayed "Context applied".
     const notesSnapshot = notes.trim();
 
+    // For text input, calculate Flesch-Kincaid grade deterministically and
+    // send it to the backend. The model uses this exact integer in its
+    // output so the verdict-meta line and the summary prose stay in sync,
+    // and the number is consistent across runs. PDFs fall back to the
+    // model's estimate because the source text isn't available here.
+    const calculatedReadingAge = !pdfFile && content
+      ? fleschKincaidGrade(content)
+      : null;
+
     try {
       const body = pdfFile
         ? { pdfData: pdfFile.data, pdfFilename: pdfFile.name, jurisdiction, role, notes: notesSnapshot }
-        : { content, jurisdiction, role, notes: notesSnapshot };
+        : { content, jurisdiction, role, notes: notesSnapshot, calculatedReadingAge };
 
       const response = await fetch('/api/review', {
         method: 'POST',
@@ -1659,7 +1723,7 @@ export default function App() {
                         )}
                       </div>
                       <div className="rb-verdict-meta-note">
-                        Flesch-Kincaid grade level
+                        Flesch-Kincaid grade level — matches Hemingway scoring
                         {readingAgeCtx?.isLivingExperience && readingAgeCtx.exceedsTarget
                           ? '. Lower is better for content read in distress'
                           : ''}.
