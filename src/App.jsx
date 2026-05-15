@@ -748,6 +748,14 @@ export default function App() {
     }
     .rb-about-show:hover { color: var(--ink); }
 
+    .rb-help-link {
+      display: inline-block; margin: 14px 0 0;
+      color: var(--muted); font-size: 13px;
+      text-decoration: underline; text-underline-offset: 3px;
+    }
+    .rb-help-link:hover { color: var(--ink); }
+    .rb-help-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+
     /* ---- Main grid ---- */
     .rb-main {
       max-width: 1280px; margin: 0 auto;
@@ -1508,9 +1516,6 @@ export default function App() {
                 <p className="rb-empty-body">
                   <a href={`${SITE}/rembrandt-editor-plus/`} target="_blank" rel="noopener noreferrer"><i>Team plans →</i></a>
                 </p>
-                <p className="rb-empty-body" style={{ marginTop: 8 }}>
-                  <a href={`${SITE}/help/`} target="_blank" rel="noopener noreferrer"><i>Help →</i></a>
-                </p>
               </div>
             </div>
           )}
@@ -1658,6 +1663,15 @@ export default function App() {
               )}
             </div>
           )}
+
+          <a
+            href={`${SITE}/help/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rb-help-link"
+          >
+            Help with Rembrandt Editor
+          </a>
         </section>
       </main>
 
