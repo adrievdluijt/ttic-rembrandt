@@ -253,6 +253,7 @@ export default function App() {
   const resultsHeadingRef = useRef(null);
   const pdfInputRef = useRef(null);
   const feedbackFirstFieldRef = useRef(null);
+  const feedbackTriggerRef = useRef(null);
 
   const PHASES = [
     { label: 'Detecting content type and reader stage', ms: 2000 },
@@ -292,6 +293,32 @@ export default function App() {
       setTimeout(() => feedbackFirstFieldRef.current?.focus(), 50);
     }
   }, [feedbackOpen, feedbackSent]);
+
+  // Trap keyboard focus inside the feedback modal while it is open, so Tab
+  // and Shift+Tab cycle through fields without escaping to the page behind.
+  useEffect(() => {
+    if (!feedbackOpen) return;
+    const handleTab = (e) => {
+      if (e.key !== 'Tab') return;
+      const modal = document.querySelector('.rb-feedback-modal');
+      if (!modal) return;
+      const focusables = Array.from(modal.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', handleTab);
+    return () => window.removeEventListener('keydown', handleTab);
+  }, [feedbackOpen]);
 
   useEffect(() => {
     if (!loading) {
@@ -422,6 +449,11 @@ export default function App() {
           parsed.overall.contextApplied = notesSnapshot;
         }
         setResults(parsed);
+        const issueCount = parsed.issues?.length || 0;
+        const flagCount = parsed.jurisdictionFlags?.length || 0;
+        setAnnouncement(
+          `Review complete. ${issueCount} issue${issueCount === 1 ? '' : 's'} and ${flagCount} ${JURISDICTIONS[jurisdiction].short} flag${flagCount === 1 ? '' : 's'} found.`
+        );
       } catch (parseErr) {
         throw new Error("The review couldn't be processed this time. Try again, or shorten the passage and try once more.");
       }
@@ -476,12 +508,23 @@ export default function App() {
 
   // --- Feedback handling ---
   const openFeedback = () => {
+    // Capture the element that opened the modal so we can return focus
+    // to it when the modal closes.
+    if (typeof document !== 'undefined') {
+      feedbackTriggerRef.current = document.activeElement;
+    }
     setFeedbackOpen(true);
     setMobileNavOpen(false);
   };
 
   const closeFeedback = () => {
     setFeedbackOpen(false);
+    // Return focus to whichever element opened the modal.
+    setTimeout(() => {
+      if (feedbackTriggerRef.current && typeof feedbackTriggerRef.current.focus === 'function') {
+        feedbackTriggerRef.current.focus();
+      }
+    }, 0);
     // Reset state after a short delay so the closing animation doesn't show empty fields
     setTimeout(() => {
       setFeedbackCategory('');
@@ -649,6 +692,7 @@ export default function App() {
       color: var(--ink); padding: 8px 14px; border-radius: 999px;
       font-size: 13px; font-weight: 500;
     }
+    .rb-nav-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     @media (max-width: 940px) {
       .rb-nav { display: none; }
       .rb-nav-toggle { display: inline-block; }
@@ -684,7 +728,7 @@ export default function App() {
     .rb-jur-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
     .rb-fw-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0; align-items: center; }
-    .rb-fw-label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; margin-right: 4px; }
+    .rb-fw-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; margin-right: 4px; }
     .rb-fw {
       font-size: 12px; color: var(--ink);
       padding: 4px 10px; border-radius: 999px;
@@ -740,6 +784,7 @@ export default function App() {
       font-size: 12px; font-weight: 500;
     }
     .rb-about-close:hover { color: var(--ink); border-color: var(--ink); background: rgba(10,61,110,0.04); }
+    .rb-about-close:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .rb-about-show {
       display: inline-block; margin: 8px 0 0;
       background: transparent; border: none; padding: 0;
@@ -747,6 +792,7 @@ export default function App() {
       text-decoration: underline; text-underline-offset: 3px;
     }
     .rb-about-show:hover { color: var(--ink); }
+    .rb-about-show:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
 
     .rb-help-link {
       display: inline-block; margin: 14px 0 0;
@@ -838,6 +884,7 @@ export default function App() {
       transition: color 0.15s ease, border-color 0.15s ease;
     }
     .rb-pdf-remove:hover { color: var(--ink); border-color: var(--ink); }
+    .rb-pdf-remove:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
     .rb-meta-row {
       display: flex; justify-content: space-between; align-items: center;
@@ -1012,7 +1059,7 @@ export default function App() {
     }
     .rb-issue-sev { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
     .rb-issue-sev .rb-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .rb-issue-cat { font-size: 11px; color: var(--faint); font-style: italic; }
+    .rb-issue-cat { font-size: 11px; color: var(--muted); font-style: italic; }
     .rb-issue-quote { padding: 12px 16px; border-radius: 6px; font-size: 14px; line-height: 1.55; font-style: italic; margin-bottom: 12px; }
     .rb-issue-problem { font-size: 14px; line-height: 1.65; margin-bottom: 12px; color: var(--ink); }
     .rb-issue-suggest { padding: 14px 16px; background: var(--panel); border-radius: 6px; border-left: 3px solid var(--ink); font-size: 14px; line-height: 1.6; color: var(--ink); }
@@ -1058,6 +1105,7 @@ export default function App() {
     .rb-footer-links { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
     .rb-footer-links a { color: var(--muted); text-decoration: none; padding: 4px 0; }
     .rb-footer-links a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+    .rb-footer-links a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
     .rb-footer-links-label { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 4px; }
     .rb-footer-feedback-btn {
       background: transparent; border: none; padding: 0;
@@ -1065,6 +1113,7 @@ export default function App() {
       text-decoration: underline; text-underline-offset: 3px;
       cursor: pointer;
     }
+    .rb-footer-feedback-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
     .rb-footer-meta {
       grid-column: 1 / -1;
       padding-top: 20px; margin-top: 12px;
@@ -1257,6 +1306,23 @@ export default function App() {
     @keyframes rb-phase-pulse {
       0%, 100% { opacity: 0.4; transform: scale(1); }
       50%      { opacity: 1;   transform: scale(1.15); }
+    }
+
+    /* ---- Reduced motion ----
+       Honour the user's prefers-reduced-motion setting. Animations are
+       turned off, transitions are reduced to a near-zero duration so
+       interactions still feel responsive but nothing moves. */
+    @media (prefers-reduced-motion: reduce) {
+      .rb-fade,
+      .rb-dots span,
+      .rb-phase-active,
+      .rb-feedback-overlay {
+        animation: none !important;
+      }
+      *, *::before, *::after {
+        transition-duration: 0.01ms !important;
+        transition-delay: 0ms !important;
+      }
     }
   `;
 
