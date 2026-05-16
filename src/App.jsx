@@ -123,7 +123,7 @@ const FEEDBACK_MESSAGE_MAX = 5000;
 // a vibe than a measurement, and the same passage can score differently
 // from one run to the next. The formula is straightforward (words,
 // sentences, syllables) and is calculated here so the displayed grade is
-// stable and Hemingway-comparable. The frontend sends this value to the
+// stable and consistent across runs. The frontend sends this value to the
 // backend with the request; the backend instructs the model to use it as
 // the canonical reading age in both the readingAge field and any summary
 // reference. For PDFs, the source text is not available here, so the
@@ -226,9 +226,9 @@ const buildReviewMarkdown = (results, jurisdiction) => {
       const age = results.overall.readingAge;
       const ctx = getReadingAgeContext(age, results.overall.contentType);
       if (ctx && ctx.exceedsTarget) {
-        lines.push(`**Reading age:** grade ${age} — for ${ctx.modeName}, ${ctx.targetText} (Flesch-Kincaid, matches Hemingway scoring)`);
+        lines.push(`**Reading age:** grade ${age} — for ${ctx.modeName}, ${ctx.targetText} (Flesch-Kincaid grade level)`);
       } else {
-        lines.push(`**Reading age:** grade ${age} (Flesch-Kincaid, matches Hemingway scoring)`);
+        lines.push(`**Reading age:** grade ${age} (Flesch-Kincaid grade level)`);
       }
     }
     if (results.overall.contextApplied) lines.push(`**Context applied:** ${results.overall.contextApplied}`);
@@ -1475,7 +1475,7 @@ export default function App() {
               <div className="rb-about-block">
                 <h2>What this is</h2>
                 <p className="rb-about-body">
-                  Rembrandt Editor flags content that is likely to fail readers in <strong>living experience</strong> — people moving through grief, fear, pain, exhaustion, or the ordinary cognitive compromise of a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where you publish.
+                  Rembrandt Editor flags content that is likely to fail readers in <strong>living experience</strong> — people moving through grief, fear, pain, exhaustion, or the ordinary cognitive compromise of a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where the content is published. Useful whether you are writing it, editing it, shipping it, or trying to understand one you have received.
                 </p>
               </div>
               <div className="rb-about-block">
@@ -1723,8 +1723,7 @@ export default function App() {
                         )}
                       </div>
                       <div className="rb-verdict-meta-note">
-                        Flesch-Kincaid grade level — matches Hemingway scoring
-                        {readingAgeCtx?.isLivingExperience && readingAgeCtx.exceedsTarget
+                        Flesch-Kincaid grade level{readingAgeCtx?.isLivingExperience && readingAgeCtx.exceedsTarget
                           ? '. Lower is better for content read in distress'
                           : ''}.
                       </div>
