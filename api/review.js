@@ -96,16 +96,15 @@ The reviewer's notes are displayed back to them by the frontend as confirmation 
 // Builds the reading-age override block. When the frontend has calculated a
 // deterministic Flesch-Kincaid grade for the input text (only possible when
 // the source text is available — i.e. not for PDFs), the model uses that
-// exact integer in its output. The deterministic calculation matches what
-// Hemingway Editor surfaces and is consistent across runs; the model's own
-// estimate of reading age is not.
+// exact integer in its output. The deterministic calculation is consistent
+// across runs; the model's own estimate of reading age is not.
 const buildReadingAgeOverride = (calculatedReadingAge) => {
   if (typeof calculatedReadingAge !== 'number' || calculatedReadingAge < 1) {
     return '';
   }
   return `## READING AGE OVERRIDE
 
-The Flesch-Kincaid grade for this content has been calculated deterministically as **grade ${calculatedReadingAge}**. This calculation matches what Hemingway Editor and similar readability tools surface.
+The Flesch-Kincaid grade for this content has been calculated deterministically as **grade ${calculatedReadingAge}**.
 
 Use this exact integer in the readingAge field of your output. Use this exact integer in any reference to the reading age in your summary prose. Do NOT estimate, recalculate, or describe a different value. The calculated grade is canonical.
 
@@ -261,8 +260,8 @@ The same principle applies to other contested terms (vulnerability, accessibilit
 
 5. Omissions and contingencies (service content only): apply the test set out in the "What the institution is not saying" section. For high-stakes service content, expect the issues array to include at least one or two flags on what is missing or framed as certain when it is contingent.
 
-6. Reading age: estimate Flesch-Kincaid grade-level equivalent. This matches what Hemingway Editor and similar readability tools surface. Reading age is a proxy, not a target. Calibrate the target by audience, not by surface classification:
-   - Service content reaching the general public, including high-stakes guidance reaching readers in living-experience territory (welfare, healthcare, housing, immigration, workplace discrimination or harassment): aim for grade 8 (GDS guidance, matches Hemingway scoring) and flag content above grade 10.
+6. Reading age: estimate Flesch-Kincaid grade-level equivalent. Reading age is a proxy, not a target. Calibrate the target by audience, not by surface classification:
+   - Service content reaching the general public, including high-stakes guidance reaching readers in living-experience territory (welfare, healthcare, housing, immigration, workplace discrimination or harassment): aim for grade 8 (GDS guidance) and flag content above grade 10.
    - Specialist or professional service content: grade 9-11 is often appropriate.
    - Organisational, educational and informational content for engaged adult audiences who are not in difficulty: grade 9-12 is typical and not a problem in itself.
    - Crisis or emergency content: aim for grade 7 or below.
