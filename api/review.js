@@ -7,6 +7,11 @@
 //   API budget. This function runs server-side, holds the key in an
 //   environment variable, validates the request, and proxies to Anthropic.
 //
+//   It also parses the model's JSON output here, server-side, with up to
+//   three attempts. The browser receives the validated structured object
+//   directly. This kills the "review could not be processed" class of
+//   intermittent error caused by occasional malformed JSON from the model.
+//
 // To edit the system prompt (where Rembrandt's IP lives), edit the
 // buildSystemPrompt function below, commit, push, and Vercel will
 // redeploy automatically.
@@ -375,6 +380,20 @@ The same principle applies to other contested terms (vulnerability, accessibilit
 - Cap issues at eight. Aim for the smallest defensible set, not the largest tolerable one. Five strong issues are better than eight with two strained. Do not pad the issues array to meet a perceived quota. If a candidate issue requires you to reach — to escalate a normal journalistic hedge into a trust-grounding failure, for example — drop it. The reader of your output is also a reader at reduced capacity.
 - Match the English variant of your output to the selected jurisdiction. UK lens: UK English throughout (analyse, behaviour, organisation, recognise). US lens: US English throughout (analyze, behavior, organization, recognize). EU lens: UK English throughout (default English variant for international content). This applies to every part of your output — the summary, observations, suggestions, and the rewrite. The selected jurisdiction is the reviewer's signal about which English variant they need their deliverable in. Do not carry the input's variant into your output unless it happens to match the selected jurisdiction.
 
+## CRITICAL — JSON output rules
+
+Your output is parsed programmatically. Malformed JSON is a hard failure, not a stylistic preference. Apply these rules without exception:
+
+- Output ONLY the JSON object. No preamble, no postamble, no markdown fences, no commentary outside the braces.
+- Every double quote inside a string value MUST be escaped as \\". This is the most common cause of parse failures. If you quote text from the source ("you have failed to..."), the inner quotes need backslash escapes inside the JSON string.
+- Every newline inside a string value MUST be escaped as \\n. Do NOT insert raw line breaks inside string values.
+- Every backslash inside a string value MUST be escaped as \\\\.
+- Do NOT use trailing commas. The last element in an array or object has no comma after it.
+- Use straight ASCII double quotes (") for JSON syntax, never smart quotes (" ").
+- Inside string content, smart quotes and apostrophes are fine — they are characters within the string, not JSON syntax.
+
+If a passage you want to quote contains double quotes, either escape them properly or paraphrase the excerpt slightly so it does not need internal quotes. Parseability is non-negotiable.
+
 ## Severity tiers
 
 The severity field uses three tiers. Apply them consistently:
@@ -424,6 +443,86 @@ ${buildReadingAgeOverride(calculatedReadingAge)}`;
 const MAX_INPUT_LENGTH = 8500;
 const MAX_PDF_BASE64 = 3_500_000; // ~2.6 MB raw, comfortably under Vercel's body limit
 const MODEL = 'claude-sonnet-4-6';
+const MAX_TOKENS = 8192;
+const MAX_ATTEMPTS = 3;
+
+// =============================================================================
+// JSON extraction — robust handling of the model's structured output.
+//
+// The model is instructed to return raw JSON, but occasionally:
+//   - wraps it in ```json fences
+//   - adds preamble or postamble prose
+//   - emits malformed JSON (unescaped quotes, trailing commas)
+// This function makes a best-effort extraction. It does NOT attempt to
+// repair invalid JSON — repair is unreliable and produces silently wrong
+// output. If the model returned invalid JSON, we retry the API call.
+// =============================================================================
+const extractJson = (text) => {
+  if (!text || typeof text !== 'string') return null;
+  let cleaned = text.replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace < 0 || lastBrace < 0 || lastBrace <= firstBrace) return null;
+  cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    return null;
+  }
+};
+
+// =============================================================================
+// Single attempt to call Anthropic and parse the response.
+// Returns one of:
+//   { ok: true, parsed }
+//   { ok: false, kind: 'truncated' }  — hit max_tokens
+//   { ok: false, kind: 'parse', rawText }  — JSON malformed
+//   { ok: false, kind: 'upstream', status, body }  — non-2xx from Anthropic
+//   { ok: false, kind: 'network', error }  — fetch threw
+// =============================================================================
+const attemptReview = async (systemPrompt, userContent) => {
+  let response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+    });
+  } catch (err) {
+    return { ok: false, kind: 'network', error: err.message || String(err) };
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    return { ok: false, kind: 'upstream', status: response.status, body };
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!data) return { ok: false, kind: 'parse', rawText: '' };
+
+  if (data.stop_reason === 'max_tokens') {
+    return { ok: false, kind: 'truncated' };
+  }
+
+  const text = (data.content || [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
+
+  const parsed = extractJson(text);
+  if (!parsed) return { ok: false, kind: 'parse', rawText: text };
+
+  return { ok: true, parsed };
+};
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -459,15 +558,11 @@ export default async function handler(req, res) {
   const safeRole  = typeof role  === 'string' ? role  : '';
   const safeNotes = typeof notes === 'string' ? notes : '';
   const safePdfName = typeof pdfFilename === 'string' ? pdfFilename : 'document.pdf';
-  // calculatedReadingAge is only meaningful for text input; for PDFs the
-  // frontend can't compute it, so the model falls back to estimating.
   const safeCalculatedReadingAge =
     typeof calculatedReadingAge === 'number' && calculatedReadingAge >= 1
       ? Math.round(calculatedReadingAge)
       : null;
 
-  // Build the user message. For PDFs, send the document block plus a short
-  // instruction; for text, keep the original framed-content format.
   const userContent = hasPdf
     ? [
         {
@@ -485,32 +580,56 @@ export default async function handler(req, res) {
       ]
     : `Jurisdiction: ${JURISDICTIONS[jurisdiction].label}\n\nContent to review:\n\n---\n${content}\n---`;
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 8192,
-        system: buildSystemPrompt(jurisdiction, safeRole, safeNotes, safeCalculatedReadingAge),
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
+  const systemPrompt = buildSystemPrompt(jurisdiction, safeRole, safeNotes, safeCalculatedReadingAge);
 
-    if (!response.ok) {
-      const errBody = await response.text();
-      console.error('Anthropic API error:', response.status, errBody);
-      return res.status(502).json({ error: 'Upstream review service is currently unavailable.' });
+  // Up to three attempts. Parse failures and transient upstream errors
+  // retry; truncation and 4xx upstream errors do not (retrying won't help).
+  let lastFailure = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const result = await attemptReview(systemPrompt, userContent);
+
+    if (result.ok) {
+      // Inject notes snapshot here so the displayed "Context applied" stays
+      // in sync with what the reviewer sent, regardless of what the model
+      // chose to do with it.
+      if (safeNotes && result.parsed.overall) {
+        result.parsed.overall.contextApplied = safeNotes;
+      }
+      return res.status(200).json(result.parsed);
     }
 
-    const data = await response.json();
-    return res.status(200).json(data);
-  } catch (err) {
-    console.error('Review handler error:', err);
-    return res.status(500).json({ error: 'Server error' });
+    lastFailure = result;
+
+    // Stop retrying on non-retryable conditions.
+    if (result.kind === 'truncated') break;
+    if (result.kind === 'upstream' && result.status >= 400 && result.status < 500 && result.status !== 429) break;
+
+    console.warn(`Review attempt ${attempt} failed (${result.kind})`,
+      result.kind === 'upstream' ? `status=${result.status}` :
+      result.kind === 'parse' ? 'JSON parse error' :
+      result.kind === 'network' ? result.error : '');
   }
+
+  // All attempts exhausted. Return the most informative error available.
+  if (lastFailure?.kind === 'truncated') {
+    return res.status(502).json({
+      error: 'The review came back longer than expected and was cut off. Try a shorter passage, or break the content into sections and review them one at a time.'
+    });
+  }
+  if (lastFailure?.kind === 'parse') {
+    console.error('All review attempts produced unparseable output. Last raw text snippet:',
+      (lastFailure.rawText || '').slice(0, 500));
+    return res.status(502).json({
+      error: 'The review service had trouble formatting its response. Please try again, or shorten the passage.'
+    });
+  }
+  if (lastFailure?.kind === 'upstream') {
+    console.error('Anthropic upstream error:', lastFailure.status, lastFailure.body);
+    return res.status(502).json({ error: 'Upstream review service is currently unavailable.' });
+  }
+  if (lastFailure?.kind === 'network') {
+    console.error('Network error reaching Anthropic:', lastFailure.error);
+    return res.status(502).json({ error: 'Could not reach the review service. Please try again.' });
+  }
+  return res.status(500).json({ error: 'Server error' });
 }
