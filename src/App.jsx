@@ -1475,7 +1475,7 @@ export default function App() {
               <div className="rb-about-block">
                 <h2>What this is</h2>
                 <p className="rb-about-body">
-                  Rembrandt Editor flags content that is likely to fail readers in <strong>living experience</strong> — people moving through grief, fear, pain, exhaustion, or the ordinary cognitive compromise of a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where the content is published. Useful whether you are writing it, editing it, shipping it, or trying to understand one you have received.
+                  Rembrandt Editor flags content that is likely to fail readers in <strong>living experience</strong> — people moving through grief, fear, pain, exhaustion or the ordinary cognitive compromise of a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where the content is published. Useful whether you are writing it, editing it, shipping it, or trying to understand one you have received.
                 </p>
               </div>
               <div className="rb-about-block">
@@ -1875,7 +1875,7 @@ export default function App() {
             ) : (
               <>
                 <p className="rb-feedback-intro">
-                  Tell us what's working, what isn't, or what's missing. This goes straight to the team — no public form, no autoresponder.
+                  Tell us what's working, what isn't or what's missing. This goes straight to the team — no public form, no autoresponder.
                 </p>
 
                 <div className="rb-feedback-field">
