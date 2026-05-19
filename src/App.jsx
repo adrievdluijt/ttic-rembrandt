@@ -4,8 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9';
-const VERSION_DATE = '15 May 2026';
+const VERSION = 'v0.9.1';
+const VERSION_DATE = '19 May 2026';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
@@ -487,40 +487,24 @@ export default function App() {
         throw new Error(errBody.error || `Request failed (${response.status})`);
       }
 
-      const data = await response.json();
+      // The server now parses the model's JSON output and returns the
+      // structured object directly, with up to three attempts to handle
+      // intermittent malformed JSON from the model. The client just
+      // displays what arrives.
+      const parsed = await response.json();
 
-      if (data.stop_reason === 'max_tokens') {
-        throw new Error('The review came back longer than expected and was cut off. Try a shorter passage, or break the content into sections and review them one at a time.');
+      // Ensure the snapshotted notes are displayed back to the reviewer as
+      // confirmation of what was sent, even if the server didn't echo them.
+      if (notesSnapshot && parsed.overall && !parsed.overall.contextApplied) {
+        parsed.overall.contextApplied = notesSnapshot;
       }
 
-      const text = (data.content || [])
-        .filter(b => b.type === 'text')
-        .map(b => b.text)
-        .join('');
-
-      let cleaned = text.replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
-      const firstBrace = cleaned.indexOf('{');
-      const lastBrace = cleaned.lastIndexOf('}');
-      if (firstBrace > 0 || lastBrace < cleaned.length - 1) {
-        cleaned = cleaned.slice(firstBrace, lastBrace + 1);
-      }
-
-      try {
-        const parsed = JSON.parse(cleaned);
-        // Inject the snapshotted notes into the results so they display
-        // alongside the model's output as confirmation of what was sent.
-        if (notesSnapshot && parsed.overall) {
-          parsed.overall.contextApplied = notesSnapshot;
-        }
-        setResults(parsed);
-        const issueCount = parsed.issues?.length || 0;
-        const flagCount = parsed.jurisdictionFlags?.length || 0;
-        setAnnouncement(
-          `Review complete. ${issueCount} issue${issueCount === 1 ? '' : 's'} and ${flagCount} ${JURISDICTIONS[jurisdiction].short} flag${flagCount === 1 ? '' : 's'} found.`
-        );
-      } catch (parseErr) {
-        throw new Error("The review couldn't be processed this time. Try again, or shorten the passage and try once more.");
-      }
+      setResults(parsed);
+      const issueCount = parsed.issues?.length || 0;
+      const flagCount = parsed.jurisdictionFlags?.length || 0;
+      setAnnouncement(
+        `Review complete. ${issueCount} issue${issueCount === 1 ? '' : 's'} and ${flagCount} ${JURISDICTIONS[jurisdiction].short} flag${flagCount === 1 ? '' : 's'} found.`
+      );
     } catch (e) {
       console.error(e);
       setError(e.message || 'Something went wrong. Please try again.');
@@ -1370,6 +1354,18 @@ export default function App() {
     @keyframes rb-phase-pulse {
       0%, 100% { opacity: 0.4; transform: scale(1); }
       50%      { opacity: 1;   transform: scale(1.15); }
+    }
+
+    /* ---- Zoom / magnification (WCAG 2.2 AA — 1.4.10 Reflow) ----
+       Drop sticky positioning on the header and the results-nav when the
+       viewport is short. At high browser zoom levels the effective CSS
+       pixel height of the viewport drops, this media query fires, and
+       the header reverts to natural document flow. Without this, the
+       sticky header eats vertical space and content slides under it,
+       which is exactly what the tester reported. */
+    @media (max-height: 600px) {
+      .rb-header { position: static; }
+      .rb-results-nav { position: static; }
     }
 
     /* ---- Reduced motion ----
