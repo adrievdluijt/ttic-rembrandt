@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.2';
+const VERSION = 'v0.9.3';
 const VERSION_DATE = '19 May 2026';
 
 // =============================================================================
@@ -116,34 +116,51 @@ const FEEDBACK_SEVERITIES = [
 const FEEDBACK_MESSAGE_MAX = 5000;
 
 // =============================================================================
-// FLESCH-KINCAID GRADE — deterministic readability calculation
+// READABILITY — deterministic Flesch-Kincaid and SMOG calculations
 //
-// Why this exists: large language models cannot reliably compute
-// Flesch-Kincaid grade. The same passage can score differently from one run
-// to the next. The formula is straightforward (words, sentences, syllables)
-// and is calculated here so the displayed grade is stable across runs.
+// Why this exists: large language models cannot reliably compute readability
+// scores. The same passage can score differently from one run to the next.
+// Both formulas are deterministic given words, sentences, syllables, and
+// polysyllabic word counts, so they are calculated here and sent to the
+// backend, which instructs the model to use the exact decimal values in
+// the readingAge and smog fields of its output. For PDFs the source text
+// is not available client-side, so the model estimates both itself.
 //
-// Tokenizer notes (v0.9.2):
-//   - countSentences now protects common abbreviations (Mr, Mrs, Dr, etc.,
+// v0.9.3 changes:
+//   - F-K is now reported to one decimal place. The integer rounding in
+//     v0.9.2 produced apparent grade jumps (e.g. 13.49 → 13.51 displayed
+//     as 13 → 14) when small edits moved the underlying continuous score
+//     across a rounding boundary. The decimal makes proportional changes
+//     visible and matches what magnification users like Marian Avery
+//     reported needing to see.
+//   - SMOG runs alongside F-K. SMOG counts polysyllabic words (3+
+//     syllables) over 30 sentences and is the NHS / healthcare standard
+//     for patient communications. F-K weights sentence length; SMOG
+//     weights vocabulary density. The two together reveal which axis
+//     drives the score, which is diagnostically useful — a high F-K with
+//     a moderate SMOG means long sentences with simple words; the
+//     reverse means short sentences with dense vocabulary.
+//
+// Tokenizer notes (carried forward from v0.9.2):
+//   - countSentences protects common abbreviations (Mr, Mrs, Dr, etc.,
 //     e.g., i.e., U.S., U.K. etc.) and decimal numbers (£847.32, 12.5%)
 //     before splitting on sentence terminators. Without this protection,
 //     "£847.32" would be counted as two sentence terminators, and "e.g."
-//     would be counted as a sentence end mid-thought. Both inflated the
-//     sentence count, which inflated words-per-sentence in unpredictable
-//     ways and produced counterintuitive grade movements when content was
-//     edited.
-//   - countWords and countSyllables work on the original text — they
-//     don't see the placeholders.
+//     would be counted as a sentence end mid-thought.
+//   - countWords, countSyllables, and countPolysyllables work on the
+//     original text — they don't see the placeholders.
 //
-// Known limitations:
-//   - The final grade is rounded to an integer via Math.round. Because
-//     Flesch-Kincaid produces a continuous score, edits that move the
-//     underlying score from 13.49 to 13.51 will flip the displayed grade
-//     from 13 to 14 even though nothing materially changed. Showing one
-//     decimal place would eliminate this; the current design uses integers
-//     to match the prompt's "no hedging" rules in summary prose.
+// SMOG reliability:
+//   - McLaughlin's original SMOG formula was designed for 30-sentence
+//     samples. For shorter texts the formula still works mathematically
+//     but the polysyllable count is multiplied by a larger factor, which
+//     can produce inflated scores. We display the score regardless and
+//     leave interpretation to the user; the calculation breakdown shows
+//     them the sentence count.
 //
-// Formula: 0.39 × (words / sentences) + 11.8 × (syllables / words) − 15.59
+// Formulae:
+//   F-K  = 0.39 × (words / sentences) + 11.8 × (syllables / words) − 15.59
+//   SMOG = 1.0430 × √(polysyllables × (30 / sentences)) + 3.1291
 // =============================================================================
 
 // Zero-width space — used as a placeholder for periods that should NOT be
@@ -206,6 +223,14 @@ const countSyllables = (text) => {
   return words.reduce((sum, word) => sum + countSyllablesInWord(word), 0);
 };
 
+const countPolysyllables = (text) => {
+  const words = text.match(/\b[\w'-]+\b/g) || [];
+  return words.reduce((sum, word) => sum + (countSyllablesInWord(word) >= 3 ? 1 : 0), 0);
+};
+
+// Round to one decimal place. Used for both F-K and SMOG.
+const round1 = (n) => Math.round(n * 10) / 10;
+
 const fleschKincaidGrade = (text) => {
   if (!text || text.trim().length === 0) return null;
   const words = countWords(text);
@@ -214,50 +239,101 @@ const fleschKincaidGrade = (text) => {
   if (words === 0) return null;
   const grade =
     0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
-  return Math.max(1, Math.round(grade));
+  return Math.max(1, round1(grade));
+};
+
+const smogGrade = (text) => {
+  if (!text || text.trim().length === 0) return null;
+  const sentences = countSentences(text);
+  const polysyllables = countPolysyllables(text);
+  if (sentences === 0) return null;
+  const grade = 1.0430 * Math.sqrt(polysyllables * (30 / sentences)) + 3.1291;
+  return Math.max(1, round1(grade));
+};
+
+// Combined calculator that returns both scores and the underlying counts.
+// The counts are surfaced in the UI behind a "Show calculation" disclosure
+// so the user can audit the maths themselves — this is the diagnostic
+// transparency Marian Avery flagged as missing in v0.9.2.
+const calculateReadability = (text) => {
+  if (!text || text.trim().length === 0) return null;
+  const words = countWords(text);
+  const sentences = countSentences(text);
+  const syllables = countSyllables(text);
+  const polysyllables = countPolysyllables(text);
+  if (words === 0 || sentences === 0) return null;
+
+  const fk = 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+  const smog = 1.0430 * Math.sqrt(polysyllables * (30 / sentences)) + 3.1291;
+
+  return {
+    readingAge: Math.max(1, round1(fk)),
+    smog: Math.max(1, round1(smog)),
+    words,
+    sentences,
+    syllables,
+    polysyllables,
+    wordsPerSentence: round1(words / sentences),
+    syllablesPerWord: Math.round((syllables / words) * 100) / 100,
+  };
 };
 
 // =============================================================================
-// READING-AGE CONTEXT
+// READABILITY CONTEXT — audience-appropriate targets for both F-K and SMOG
 // =============================================================================
-const getReadingAgeContext = (readingAge, contentType) => {
+const getReadabilityContext = (readingAge, smog, contentType) => {
   const t = (contentType || '').toLowerCase();
 
-  let target = null;
+  let fkTarget = null;
+  let smogTarget = null;
   let modeName = null;
   let targetText = null;
+  let isLivingExperience = false;
 
   if (t.includes('crisis') || t.includes('emergency')) {
-    target = 7;
+    fkTarget = 7;
+    smogTarget = 8;
     modeName = 'crisis or emergency content';
-    targetText = 'aim for grade 7 or below';
+    targetText = 'aim for F-K 7 or below and SMOG 8 or below';
+    isLivingExperience = true;
   } else if (t.includes('service content')) {
-    target = 8;
+    fkTarget = 8;
+    smogTarget = 9;
     modeName = 'service content';
-    targetText = 'GDS guidance is around grade 8';
+    targetText = 'GDS aims for F-K around 8, NHS SMOG ≤ 9';
+    isLivingExperience = true;
   } else if (t.includes('fundraising') || t.includes('emotional appeal') || t.includes('appeal email') || t.includes('donor')) {
-    target = 11;
+    fkTarget = 11;
+    smogTarget = 11;
     modeName = 'fundraising content';
-    targetText = 'grade 9-11 is typical';
+    targetText = 'F-K 9-11 and SMOG 10-11 typical';
   } else if (t.includes('marketing') || t.includes('commercial') || t.includes('promotional')) {
-    target = 10;
+    fkTarget = 10;
+    smogTarget = 11;
     modeName = 'marketing content';
-    targetText = 'grade 8-10 is typical';
+    targetText = 'F-K 8-10 and SMOG 9-11 typical';
   } else if (t.includes('organisational') || t.includes('overview') ||
              t.includes('educational') || t.includes('blog') ||
              t.includes('article') || t.includes('explainer')) {
-    target = 12;
+    fkTarget = 12;
+    smogTarget = 12;
     modeName = 'content for engaged adult audiences';
-    targetText = 'grade 9-12 is typical';
+    targetText = 'F-K 9-12 and SMOG 10-12 typical';
   }
 
-  if (!target) return null;
+  if (!fkTarget) return null;
+
+  const exceedsTarget =
+    (typeof readingAge === 'number' && readingAge > fkTarget) ||
+    (typeof smog === 'number' && smog > smogTarget);
+
   return {
-    target,
+    fkTarget,
+    smogTarget,
     modeName,
     targetText,
-    exceedsTarget: readingAge > target,
-    isLivingExperience: modeName === 'service content' || modeName === 'crisis or emergency content',
+    exceedsTarget,
+    isLivingExperience,
   };
 };
 
@@ -269,17 +345,24 @@ const buildReviewMarkdown = (results, jurisdiction) => {
 
   if (results.overall) {
     if (results.overall.contentType) lines.push(`**Detected as:** ${results.overall.contentType}`);
-    if (results.overall.readingAge) {
-      const age = results.overall.readingAge;
-      const ctx = getReadingAgeContext(age, results.overall.contentType);
+
+    const fk = results.overall.readingAge;
+    const sm = results.overall.smog;
+    if (fk || sm) {
+      const ctx = getReadabilityContext(fk, sm, results.overall.contentType);
+      const parts = [];
+      if (fk) parts.push(`F-K ${fk}`);
+      if (sm) parts.push(`SMOG ${sm}`);
+      const line = `**Reading age:** ${parts.join(' · ')}`;
       if (ctx && ctx.exceedsTarget) {
-        lines.push(`**Reading age:** grade ${age} — for ${ctx.modeName}, ${ctx.targetText} (Flesch-Kincaid grade level)`);
+        lines.push(`${line} — for ${ctx.modeName}, ${ctx.targetText}`);
       } else {
-        lines.push(`**Reading age:** grade ${age} (Flesch-Kincaid grade level)`);
+        lines.push(line);
       }
     }
+
     if (results.overall.contextApplied) lines.push(`**Context applied:** ${results.overall.contextApplied}`);
-    if (results.overall.contentType || results.overall.readingAge || results.overall.contextApplied) lines.push('');
+    if (results.overall.contentType || fk || sm || results.overall.contextApplied) lines.push('');
 
     if (results.overall.summary) {
       lines.push('## Summary', '', results.overall.summary, '');
@@ -509,19 +592,22 @@ export default function App() {
     // to the notes field don't desync from the displayed "Context applied".
     const notesSnapshot = notes.trim();
 
-    // For text input, calculate Flesch-Kincaid grade deterministically and
-    // send it to the backend. The model uses this exact integer in its
+    // For text input, calculate readability deterministically and send both
+    // values to the backend. The model uses these exact decimals in its
     // output so the verdict-meta line and the summary prose stay in sync,
-    // and the number is consistent across runs. PDFs fall back to the
-    // model's estimate because the source text isn't available here.
-    const calculatedReadingAge = !pdfFile && content
-      ? fleschKincaidGrade(content)
-      : null;
+    // and the numbers are consistent across runs. The breakdown is also
+    // stored locally and attached to the parsed results so the user can
+    // audit the calculation via the "Show calculation" disclosure. PDFs
+    // fall back to the model's estimates because the source text isn't
+    // available client-side.
+    const readability = !pdfFile && content ? calculateReadability(content) : null;
+    const calculatedReadingAge = readability ? readability.readingAge : null;
+    const calculatedSmog = readability ? readability.smog : null;
 
     try {
       const body = pdfFile
         ? { pdfData: pdfFile.data, pdfFilename: pdfFile.name, jurisdiction, role, notes: notesSnapshot }
-        : { content, jurisdiction, role, notes: notesSnapshot, calculatedReadingAge };
+        : { content, jurisdiction, role, notes: notesSnapshot, calculatedReadingAge, calculatedSmog };
 
       const response = await fetch('/api/review', {
         method: 'POST',
@@ -544,6 +630,20 @@ export default function App() {
       // confirmation of what was sent, even if the server didn't echo them.
       if (notesSnapshot && parsed.overall && !parsed.overall.contextApplied) {
         parsed.overall.contextApplied = notesSnapshot;
+      }
+
+      // Attach the deterministic breakdown so the UI can show it in the
+      // "Show calculation" disclosure. PDFs don't get a breakdown because
+      // the source text isn't tokenisable client-side.
+      if (readability && parsed.overall) {
+        parsed.overall.readabilityBreakdown = {
+          words: readability.words,
+          sentences: readability.sentences,
+          syllables: readability.syllables,
+          polysyllables: readability.polysyllables,
+          wordsPerSentence: readability.wordsPerSentence,
+          syllablesPerWord: readability.syllablesPerWord,
+        };
       }
 
       setResults(parsed);
@@ -1148,6 +1248,37 @@ export default function App() {
       font-size: 12px; font-style: italic; color: var(--muted);
     }
 
+    /* ---- Readability "Show calculation" disclosure ----
+       Sits beneath the meta line. Lets the user audit the deterministic
+       maths behind the F-K and SMOG figures — the diagnostic transparency
+       Marian Avery flagged as missing when small edits produced
+       counterintuitive grade movements. Not shown for PDF input. */
+    .rb-readability-details {
+      margin-top: 8px; font-size: 12px; color: var(--muted);
+    }
+    .rb-readability-details summary {
+      cursor: pointer; list-style: none;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 0; color: var(--muted);
+    }
+    .rb-readability-details summary::-webkit-details-marker { display: none; }
+    .rb-readability-details summary::before {
+      content: '▸'; transition: transform 0.15s ease;
+      font-size: 10px;
+    }
+    .rb-readability-details[open] summary::before { transform: rotate(90deg); }
+    .rb-readability-details summary:hover { color: var(--ink); }
+    .rb-readability-details summary:focus-visible {
+      outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px;
+    }
+    .rb-readability-breakdown {
+      margin-top: 6px; padding: 8px 14px;
+      background: var(--panel); border-radius: 6px;
+      font-size: 12px; color: var(--ink);
+      line-height: 1.7;
+    }
+    .rb-readability-breakdown div { margin: 0; }
+
     .rb-subhead { font-family: 'Rethink Sans', sans-serif; font-size: 17px; font-weight: 600; margin: 0 0 4px; color: var(--ink); }
     .rb-subhead-note { font-size: 12px; color: var(--muted); margin-bottom: 12px; font-style: italic; }
 
@@ -1432,10 +1563,10 @@ export default function App() {
 
   const frameworkTone = (idx) => ['coral', 'sky', 'sage', 'coral', 'sky'][idx % 5];
 
-  // Pre-compute reading-age context for the verdict block so we can use it
+  // Pre-compute readability context for the verdict block so we can use it
   // in both the inline target line and the explanatory note below it.
-  const readingAgeCtx = results?.overall?.readingAge
-    ? getReadingAgeContext(results.overall.readingAge, results.overall.contentType)
+  const readabilityCtx = results?.overall && (results.overall.readingAge || results.overall.smog)
+    ? getReadabilityContext(results.overall.readingAge, results.overall.smog, results.overall.contentType)
     : null;
 
   // Document type label for the feedback context disclosure
@@ -1754,19 +1885,34 @@ export default function App() {
                     </div>
                   )}
                   <div className="rb-verdict-summary">{results.overall.summary}</div>
-                  {results.overall.readingAge && (
+                  {(results.overall.readingAge || results.overall.smog) && (
                     <div className="rb-verdict-meta">
                       <div>
-                        <strong>Reading age: grade {results.overall.readingAge}</strong>
-                        {readingAgeCtx && readingAgeCtx.exceedsTarget && (
-                          <> — for {readingAgeCtx.modeName}, {readingAgeCtx.targetText}</>
-                        )}
+                        <strong>Reading age: </strong>
+                        {results.overall.readingAge && <>F-K {results.overall.readingAge}</>}
+                        {results.overall.readingAge && results.overall.smog && <> · </>}
+                        {results.overall.smog && <>SMOG {results.overall.smog}</>}
                       </div>
+                      {readabilityCtx && readabilityCtx.exceedsTarget && (
+                        <div>For {readabilityCtx.modeName}, {readabilityCtx.targetText}.</div>
+                      )}
                       <div className="rb-verdict-meta-note">
-                        Flesch-Kincaid grade level{readingAgeCtx?.isLivingExperience && readingAgeCtx.exceedsTarget
-                          ? '. Lower is better for content read in distress'
-                          : ''}.
+                        F-K weights sentence length; SMOG counts polysyllabic words (NHS standard).
+                        {readabilityCtx?.isLivingExperience && readabilityCtx.exceedsTarget &&
+                          ' Lower is better for content read in distress.'}
                       </div>
+
+                      {results.overall.readabilityBreakdown && (
+                        <details className="rb-readability-details">
+                          <summary>Show calculation</summary>
+                          <div className="rb-readability-breakdown">
+                            <div>{results.overall.readabilityBreakdown.words.toLocaleString()} words · {results.overall.readabilityBreakdown.sentences.toLocaleString()} sentences</div>
+                            <div>{results.overall.readabilityBreakdown.wordsPerSentence} words per sentence (average)</div>
+                            <div>{results.overall.readabilityBreakdown.syllablesPerWord} syllables per word (average)</div>
+                            <div>{results.overall.readabilityBreakdown.polysyllables.toLocaleString()} polysyllabic words (3+ syllables)</div>
+                          </div>
+                        </details>
+                      )}
                     </div>
                   )}
                 </div>
