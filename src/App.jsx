@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.1';
+const VERSION = 'v0.9.2';
 const VERSION_DATE = '19 May 2026';
 
 // =============================================================================
@@ -119,20 +119,67 @@ const FEEDBACK_MESSAGE_MAX = 5000;
 // FLESCH-KINCAID GRADE — deterministic readability calculation
 //
 // Why this exists: large language models cannot reliably compute
-// Flesch-Kincaid grade. The number Sonnet returns on its own is closer to
-// a vibe than a measurement, and the same passage can score differently
-// from one run to the next. The formula is straightforward (words,
-// sentences, syllables) and is calculated here so the displayed grade is
-// stable and consistent across runs. The frontend sends this value to the
-// backend with the request; the backend instructs the model to use it as
-// the canonical reading age in both the readingAge field and any summary
-// reference. For PDFs, the source text is not available here, so the
-// model's own estimate stands as a fallback.
+// Flesch-Kincaid grade. The same passage can score differently from one run
+// to the next. The formula is straightforward (words, sentences, syllables)
+// and is calculated here so the displayed grade is stable across runs.
+//
+// Tokenizer notes (v0.9.2):
+//   - countSentences now protects common abbreviations (Mr, Mrs, Dr, etc.,
+//     e.g., i.e., U.S., U.K. etc.) and decimal numbers (£847.32, 12.5%)
+//     before splitting on sentence terminators. Without this protection,
+//     "£847.32" would be counted as two sentence terminators, and "e.g."
+//     would be counted as a sentence end mid-thought. Both inflated the
+//     sentence count, which inflated words-per-sentence in unpredictable
+//     ways and produced counterintuitive grade movements when content was
+//     edited.
+//   - countWords and countSyllables work on the original text — they
+//     don't see the placeholders.
+//
+// Known limitations:
+//   - The final grade is rounded to an integer via Math.round. Because
+//     Flesch-Kincaid produces a continuous score, edits that move the
+//     underlying score from 13.49 to 13.51 will flip the displayed grade
+//     from 13 to 14 even though nothing materially changed. Showing one
+//     decimal place would eliminate this; the current design uses integers
+//     to match the prompt's "no hedging" rules in summary prose.
 //
 // Formula: 0.39 × (words / sentences) + 11.8 × (syllables / words) − 15.59
 // =============================================================================
+
+// Zero-width space — used as a placeholder for periods that should NOT be
+// treated as sentence terminators (abbreviations, decimal points, ellipses).
+const PROTECT = '\u200B';
+
+const ABBREVIATIONS = [
+  'Mr', 'Mrs', 'Ms', 'Mx', 'Dr', 'Prof',
+  'St', 'Jr', 'Sr', 'No',
+  'vs', 'etc', 'cf', 'al',
+  'Inc', 'Ltd', 'Co', 'Corp',
+  'Rev', 'Hon', 'Capt', 'Lt', 'Sgt', 'Gen', 'Col',
+];
+
 const countSentences = (text) => {
-  const sentences = text
+  let working = text;
+
+  // Protect decimal numbers (e.g. "847.32", "12.5%") from being split.
+  working = working.replace(/(\d)\.(\d)/g, `$1${PROTECT}$2`);
+
+  // Collapse ellipses to a single protected mark so "..." doesn't count
+  // as three sentence ends.
+  working = working.replace(/\.{2,}/g, PROTECT);
+
+  // Protect dotted abbreviations like "e.g.", "i.e.", "U.S.", "U.K."
+  // Pattern: single letter, dot, single letter, dot.
+  working = working.replace(/\b([a-zA-Z])\.([a-zA-Z])\./g, `$1${PROTECT}$2${PROTECT}`);
+
+  // Protect the listed word abbreviations followed by a period.
+  ABBREVIATIONS.forEach((abbrev) => {
+    const re = new RegExp(`\\b${abbrev}\\.`, 'g');
+    working = working.replace(re, abbrev + PROTECT);
+  });
+
+  // Now split on actual sentence terminators.
+  const sentences = working
     .split(/[.!?]+(?:\s|$)/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
@@ -702,13 +749,18 @@ export default function App() {
       overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
     }
 
-    /* ---- Header ---- */
+    /* ---- Header ----
+       Not sticky. Sticky headers are an accessibility regression for users
+       at high browser magnification (350-500% is common among magnification
+       users, well beyond WCAG's 200% test) because the header occupies a
+       growing fraction of the viewport and obscures content. position:
+       relative is here to act as the positioning context for the mobile
+       nav dropdown, which uses top: 100% to sit flush below the header at
+       any height. */
     .rb-header {
       border-bottom: 1px solid var(--rule);
-      background: rgba(250, 250, 246, 0.94);
-      position: sticky; top: 0; z-index: 20;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      background: var(--bg);
+      position: relative; z-index: 20;
     }
     .rb-header-inner { max-width: 1280px; margin: 0 auto; padding: 16px 32px 12px; }
     .rb-header-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
@@ -746,7 +798,7 @@ export default function App() {
       .rb-nav-toggle { display: inline-block; }
       .rb-nav.rb-nav-open {
         display: flex; flex-direction: column; align-items: stretch;
-        position: absolute; top: 72px; right: 16px; left: 16px;
+        position: absolute; top: 100%; right: 16px; left: 16px;
         background: var(--surface); border: 1px solid var(--rule);
         padding: 8px; border-radius: 12px;
         box-shadow: 0 16px 40px rgba(10,61,110,0.12); gap: 0;
@@ -1042,14 +1094,17 @@ export default function App() {
     .rb-results-copy:hover { background: var(--ink-deep); }
     .rb-results-copy:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
+    /* ---- Results-section nav ----
+       Sits in normal document flow. Was previously sticky with a hardcoded
+       offset — removed for the same accessibility reasons as the page
+       header (see comment on .rb-header). Users at high magnification can
+       scroll up to use it. */
     .rb-results-nav {
-      position: sticky; top: 122px; z-index: 4;
       display: flex; flex-wrap: wrap; gap: 4px;
       padding: 8px 0; background: var(--bg);
       border-bottom: 1px solid var(--rule);
       margin-bottom: 4px; font-size: 13px;
     }
-    @media (max-width: 900px) { .rb-results-nav { top: 142px; } }
     .rb-results-nav a {
       color: var(--muted); text-decoration: none;
       padding: 5px 12px; border-radius: 999px;
@@ -1059,7 +1114,8 @@ export default function App() {
     .rb-results-nav a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .rb-results-nav .rb-nav-count { display: inline-block; margin-left: 4px; opacity: 0.6; font-variant-numeric: tabular-nums; }
 
-    .rb-anchor { scroll-margin-top: 200px; }
+    /* Small breathing room above anchor targets; no sticky header to dodge. */
+    .rb-anchor { scroll-margin-top: 1rem; }
 
     .rb-verdict {
       padding: 22px 24px; border-radius: 4px 12px 12px 4px;
@@ -1354,18 +1410,6 @@ export default function App() {
     @keyframes rb-phase-pulse {
       0%, 100% { opacity: 0.4; transform: scale(1); }
       50%      { opacity: 1;   transform: scale(1.15); }
-    }
-
-    /* ---- Zoom / magnification (WCAG 2.2 AA — 1.4.10 Reflow) ----
-       Drop sticky positioning on the header and the results-nav when the
-       viewport is short. At high browser zoom levels the effective CSS
-       pixel height of the viewport drops, this media query fires, and
-       the header reverts to natural document flow. Without this, the
-       sticky header eats vertical space and content slides under it,
-       which is exactly what the tester reported. */
-    @media (max-height: 600px) {
-      .rb-header { position: static; }
-      .rb-results-nav { position: static; }
     }
 
     /* ---- Reduced motion ----
