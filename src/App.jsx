@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.3';
+const VERSION = 'v0.9.4';
 const VERSION_DATE = '19 May 2026';
 
 // =============================================================================
@@ -397,12 +397,6 @@ const buildReviewMarkdown = (results, jurisdiction) => {
   lines.push(`Reviewed with Rembrandt Editor ${VERSION} · ${SITE.replace(/^https?:\/\//, '')}`);
 
   return lines.join('\n');
-};
-
-const frameworksByJurisdiction = {
-  UK: 'ISO 22458, WCAG 2.2 AA, GDS content standards, plus sector-specific frameworks where they apply (FCA Consumer Duty, Fundraising Regulator, ASA CAP code)',
-  EU: 'European Accessibility Act, EN 301 549, ISO 22458',
-  US: 'Plain Writing Act, Section 508, ADA, ISO 22458',
 };
 
 // =============================================================================
@@ -928,7 +922,7 @@ export default function App() {
     .rb-jur-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
     .rb-fw-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0; align-items: center; }
-    .rb-fw-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; margin-right: 4px; }
+    .rb-fw-label { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; font-weight: 600; margin-right: 4px; }
     .rb-fw {
       font-size: 12px; color: var(--ink);
       padding: 4px 10px; border-radius: 999px;
@@ -961,8 +955,8 @@ export default function App() {
     @media (max-width: 760px) { .rb-about-grid { grid-template-columns: 1fr; gap: 14px; } }
     .rb-about-block h2 {
       font-family: 'Rethink Sans', sans-serif;
-      font-size: 12px; font-weight: 700;
-      letter-spacing: 0.12em; text-transform: uppercase;
+      font-size: 15px; font-weight: 600;
+      letter-spacing: -0.005em;
       color: var(--ink); margin: 0 0 8px;
     }
     .rb-about-body { font-size: 16px; line-height: 1.5; color: var(--ink); margin: 0; }
@@ -1022,6 +1016,43 @@ export default function App() {
     .rb-field-label {
       display: block; font-size: 12px; color: var(--muted);
       margin-bottom: 6px; font-style: italic;
+    }
+
+    /* ---- Progressive disclosure for role + notes ----
+       Hidden by default. Click summary to reveal the role chips and notes
+       field. State preserved when collapsed — values still send on
+       Review. Pattern mirrors the readability "Show calculation"
+       disclosure for visual consistency. */
+    .rb-context-details {
+      margin-bottom: 14px;
+    }
+    .rb-context-details summary {
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--muted);
+      padding: 6px 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      list-style: none;
+      user-select: none;
+    }
+    .rb-context-details summary::-webkit-details-marker { display: none; }
+    .rb-context-details summary::before {
+      content: '▸';
+      transition: transform 0.15s ease;
+      font-size: 11px;
+      color: var(--faint);
+    }
+    .rb-context-details[open] summary::before { transform: rotate(90deg); }
+    .rb-context-details summary:hover { color: var(--ink); }
+    .rb-context-details summary:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    .rb-context-details[open] > .rb-role {
+      margin-top: 10px;
     }
     .rb-notes-input {
       width: 100%; padding: 10px 14px;
@@ -1106,9 +1137,9 @@ export default function App() {
     }
     .rb-pdf-toggle .rb-link-btn { font-size: 13px; }
     .rb-pdf-toggle-tag {
-      display: inline-block; padding: 1px 7px; background: var(--panel);
-      border-radius: 999px; font-size: 10px; color: var(--ink);
-      font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      display: inline-block; padding: 1px 8px; background: var(--panel);
+      border-radius: 999px; font-size: 11px; color: var(--ink);
+      font-weight: 600; letter-spacing: 0;
       margin-left: 4px;
     }
 
@@ -1140,12 +1171,6 @@ export default function App() {
         var(--surface);
     }
     .rb-empty-inner { max-width: 420px; text-align: center; }
-    .rb-empty-cta {
-      font-family: 'Rethink Sans', sans-serif;
-      font-weight: 600; font-size: 17px; color: var(--ink);
-      margin: 0 0 8px; line-height: 1.4;
-    }
-    .rb-empty-cta-sub { font-size: 13px; color: var(--muted); margin: 0 0 24px; }
     .rb-empty-divider {
       height: 1px; background: var(--rule);
       width: 60px; margin: 0 auto 24px;
@@ -1153,10 +1178,11 @@ export default function App() {
     .rb-empty-quote {
       font-family: 'Rethink Sans', sans-serif;
       font-size: 16px; font-weight: 500; font-style: italic;
-      color: var(--ink); margin: 0 0 12px;
+      color: var(--ink); margin: 8px 0 14px;
       line-height: 1.45; letter-spacing: -0.005em;
     }
-    .rb-empty-body { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0; }
+    .rb-empty-body { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0 0 14px; }
+    .rb-empty-body:last-child { margin-bottom: 0; }
 
     /* ---- Phased loading list ---- */
     .rb-loading-inner { max-width: 320px; }
@@ -1234,9 +1260,8 @@ export default function App() {
     }
     .rb-verdict-context strong {
       font-weight: 600; color: var(--ink);
-      display: block; margin-bottom: 2px;
-      font-size: 11px; letter-spacing: 0.06em;
-      text-transform: uppercase;
+      display: block; margin-bottom: 4px;
+      font-size: 13px; letter-spacing: 0;
     }
     .rb-verdict-summary { font-size: 16px; line-height: 1.65; color: var(--ink); }
     .rb-verdict-meta {
@@ -1292,13 +1317,13 @@ export default function App() {
       display: flex; justify-content: space-between; align-items: center;
       gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
     }
-    .rb-issue-sev { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+    .rb-issue-sev { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: 0; }
     .rb-issue-sev .rb-dot { width: 8px; height: 8px; border-radius: 50%; }
     .rb-issue-cat { font-size: 11px; color: var(--muted); font-style: italic; }
     .rb-issue-quote { padding: 12px 16px; border-radius: 6px; font-size: 14px; line-height: 1.55; font-style: italic; margin-bottom: 12px; }
     .rb-issue-problem { font-size: 14px; line-height: 1.65; margin-bottom: 12px; color: var(--ink); }
     .rb-issue-suggest { padding: 14px 16px; background: var(--panel); border-radius: 6px; border-left: 3px solid var(--ink); font-size: 14px; line-height: 1.6; color: var(--ink); }
-    .rb-issue-suggest-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); margin-bottom: 4px; }
+    .rb-issue-suggest-label { font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--ink); margin-bottom: 4px; }
 
     /* ---- Flags ---- */
     .rb-flag { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 18px; }
@@ -1341,7 +1366,7 @@ export default function App() {
     .rb-footer-links a { color: var(--muted); text-decoration: none; padding: 4px 0; }
     .rb-footer-links a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
     .rb-footer-links a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
-    .rb-footer-links-label { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 4px; }
+    .rb-footer-links-label { font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--ink); margin-bottom: 4px; }
     .rb-footer-feedback-btn {
       background: transparent; border: none; padding: 0;
       font: inherit; color: inherit;
@@ -1668,39 +1693,45 @@ export default function App() {
         <section aria-labelledby="input-heading">
           <h2 id="input-heading" className="rb-display rb-section-title">Content to review</h2>
 
-          <div className="rb-role">
-            <span className="rb-field-label" id="role-label">
-              Your role with this content (optional)
-            </span>
-            <div className="rb-chips" role="group" aria-labelledby="role-label">
-              {ROLE_CHIPS.map((chip) => (
-                <button
-                  key={chip} type="button" onClick={() => toggleChip(chip)}
-                  aria-pressed={role === chip} className="rb-chip"
-                >
-                  {chip}
-                </button>
-              ))}
-            </div>
-          </div>
+          <details className="rb-context-details">
+            <summary>
+              {(role || notes) ? 'Context (set) — edit' : 'Add context (optional)'}
+            </summary>
 
-          <div className="rb-notes">
-            <label htmlFor="notes-input" className="rb-field-label">
-              Anything else we should know (optional)
-            </label>
-            <textarea
-              id="notes-input"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              className="rb-notes-input"
-              placeholder="e.g. 'audience has limited English' or 'I can't change the legal disclaimer at the bottom'"
-              aria-describedby="notes-help"
-            />
-            <div id="notes-help" className="rb-sr-only">
-              Anything you tell Rembrandt Editor here will be factored into the review and shown back to you alongside the result so you can verify it was understood.
+            <div className="rb-role">
+              <span className="rb-field-label" id="role-label">
+                Your role with this content
+              </span>
+              <div className="rb-chips" role="group" aria-labelledby="role-label">
+                {ROLE_CHIPS.map((chip) => (
+                  <button
+                    key={chip} type="button" onClick={() => toggleChip(chip)}
+                    aria-pressed={role === chip} className="rb-chip"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+
+            <div className="rb-notes">
+              <label htmlFor="notes-input" className="rb-field-label">
+                Anything else we should know
+              </label>
+              <textarea
+                id="notes-input"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                className="rb-notes-input"
+                placeholder="e.g. 'audience has limited English' or 'I can't change the legal disclaimer at the bottom'"
+                aria-describedby="notes-help"
+              />
+              <div id="notes-help" className="rb-sr-only">
+                Anything you tell Rembrandt Editor here will be factored into the review and shown back to you alongside the result so you can verify it was understood.
+              </div>
+            </div>
+          </details>
 
           {pdfFile ? (
             <div className="rb-pdf-card" role="region" aria-label="PDF loaded">
@@ -1801,12 +1832,6 @@ export default function App() {
           {!results && !loading && !error && (
             <div className="rb-empty">
               <div className="rb-empty-inner">
-                <p className="rb-empty-cta">Paste content and click Review to begin.</p>
-                <p className="rb-empty-cta-sub">Or upload a PDF.</p>
-                <p className="rb-empty-body">
-                  Reviewing under {jurisdiction} frameworks — {frameworksByJurisdiction[jurisdiction]}. Change jurisdiction at the top of the page if you need a different one.
-                </p>
-                <div className="rb-empty-divider" aria-hidden="true" />
                 <p className="rb-empty-quote">
                   "We design for full capacity. Life rarely provides it."
                 </p>
