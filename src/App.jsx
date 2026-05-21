@@ -4,8 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.5';
-const VERSION_DATE = '19 May 2026';
+const VERSION = 'v0.9.6';
+const VERSION_DATE = '21 May 2026';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
@@ -74,13 +74,14 @@ const ROLE_CHIPS = [
 const CHAR_LIMIT = 8000;
 const PDF_MAX_BYTES = 2_500_000; // ~2.5 MB raw, ~3.3 MB base64 — sits under Vercel body limit
 
-// Client-side fetch timeout for the /api/review call. Set above Vercel's
-// 60-second function ceiling so the server has every chance to return its
-// own error (truncation, parse failure, upstream 5xx) first. This timeout
-// is a backstop for the genuinely unknown — a network drop, a hung
-// connection, a deploy that returns nothing — so the user is never left
-// watching the loading state indefinitely.
-const REVIEW_FETCH_TIMEOUT_MS = 75_000;
+// Client-side fetch timeout for the /api/review call. Long reviews
+// against complex passages can genuinely take 60-120 seconds — Sonnet
+// generates several thousand tokens of structured output against a
+// substantial system prompt, and that takes real time. The 180-second
+// ceiling is conservative without being so long it traps a user
+// against a genuinely dead connection. The Vercel function maxDuration
+// (set in api/review.js) is the matching server-side cap.
+const REVIEW_FETCH_TIMEOUT_MS = 180_000;
 const ABOUT_DISMISS_KEY = 'rb_about_dismissed_v3';
 
 const SITE = 'https://traumainformedcontent.com';
@@ -424,6 +425,7 @@ export default function App() {
   const [announcement, setAnnouncement] = useState('');
   const [aboutDismissed, setAboutDismissed] = useState(false);
   const [reviewPhase, setReviewPhase] = useState(-1);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Feedback modal state
@@ -442,11 +444,17 @@ export default function App() {
   const feedbackFirstFieldRef = useRef(null);
   const feedbackTriggerRef = useRef(null);
 
+  // Phase timings (in ms) are scenography of what the server is doing.
+  // We can't see the model's actual progress, so these are roughly
+  // matched to typical review duration — slow enough that the last
+  // phase doesn't tick "current" within 20 seconds of a call that
+  // routinely takes 60-90+ seconds to complete. The elapsed counter
+  // below is the user's real signal that the request is alive.
   const PHASES = [
-    { label: 'Detecting content type and reader stage', ms: 2000 },
-    { label: 'Mapping cognitive load and trust points', ms: 6000 },
-    { label: `Checking against ${JURISDICTIONS[jurisdiction].short} frameworks`, ms: 5000 },
-    { label: 'Drafting suggested rewrite', ms: 7000 },
+    { label: 'Detecting content type and reader stage', ms: 4000 },
+    { label: 'Mapping cognitive load and trust points', ms: 12000 },
+    { label: `Checking against ${JURISDICTIONS[jurisdiction].short} frameworks`, ms: 10000 },
+    { label: 'Drafting suggested rewrite', ms: 14000 },
   ];
 
   useEffect(() => {
@@ -510,9 +518,11 @@ export default function App() {
   useEffect(() => {
     if (!loading) {
       setReviewPhase(-1);
+      setElapsedSeconds(0);
       return;
     }
     setReviewPhase(0);
+    setElapsedSeconds(0);
     let cumulative = 0;
     // Schedule timers for every phase EXCEPT the last one. The last phase
     // stays "current" until the API actually returns, instead of ticking
@@ -522,7 +532,16 @@ export default function App() {
       cumulative += p.ms;
       return setTimeout(() => setReviewPhase(i + 1), cumulative);
     });
-    return () => timers.forEach(clearTimeout);
+    // Real elapsed counter — gives the user a live signal that the
+    // request is still in flight even when the phase list has stopped
+    // moving. Ticks once per second from 0.
+    const elapsedTimer = setInterval(() => {
+      setElapsedSeconds((s) => s + 1);
+    }, 1000);
+    return () => {
+      timers.forEach(clearTimeout);
+      clearInterval(elapsedTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, jurisdiction]);
 
@@ -588,7 +607,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setResults(null);
-    setAnnouncement('Reviewing content. This usually takes 10 to 20 seconds.');
+    setAnnouncement('Reviewing content. This can take up to a minute or two for longer passages.');
 
     // Snapshot notes at the moment the review is run, so subsequent edits
     // to the notes field don't desync from the displayed "Context applied".
@@ -1217,11 +1236,11 @@ export default function App() {
     .rb-empty-body:last-child { margin-bottom: 0; }
 
     /* ---- Phased loading list ---- */
-    .rb-loading-inner { max-width: 320px; }
+    .rb-loading-inner { max-width: 360px; }
     .rb-loading-title {
       font-family: 'Rethink Sans', sans-serif;
       font-size: 15px; font-style: italic; margin-bottom: 18px;
-      text-align: center; color: var(--ink);
+      text-align: center; color: var(--ink); line-height: 1.4;
     }
     .rb-phases { list-style: none; padding: 0; margin: 0; font-size: 13px; line-height: 1.8; text-align: left; }
     .rb-phase { display: flex; align-items: center; gap: 10px; transition: opacity 0.3s ease, color 0.3s ease, font-weight 0.3s ease; }
@@ -1229,6 +1248,21 @@ export default function App() {
     .rb-phase-done    { color: var(--muted); opacity: 1; }
     .rb-phase-current { color: var(--ink);   opacity: 1; font-weight: 600; }
     .rb-phase-pending { color: var(--faint); opacity: 0.55; }
+
+    /* ---- Elapsed-seconds counter ----
+       Sits below the phase list. Real signal that the request is alive
+       even when the phase list has stopped moving. aria-live="off" on
+       the element because announcing every second to screen readers
+       would be intolerable. Tabular numerals so the digits don't jitter. */
+    .rb-loading-elapsed {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--rule);
+      font-size: 12px;
+      color: var(--faint);
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
 
     .rb-error-card {
       background: #FCEAE3; border-color: var(--coral);
@@ -1881,7 +1915,11 @@ export default function App() {
           {loading && (
             <div className="rb-loading rb-fade">
               <div className="rb-loading-inner">
-                <div className="rb-display rb-loading-title">Reading carefully</div>
+                <div className="rb-display rb-loading-title">
+                  {elapsedSeconds < 30
+                    ? 'Reading carefully'
+                    : 'Still reading — longer passages can take a minute or two'}
+                </div>
                 <ul className="rb-phases" aria-label="Review progress">
                   {PHASES.map((p, i) => {
                     const done = i < reviewPhase;
@@ -1897,6 +1935,11 @@ export default function App() {
                     );
                   })}
                 </ul>
+                <div className="rb-loading-elapsed" aria-live="off">
+                  {elapsedSeconds < 60
+                    ? `${elapsedSeconds}s elapsed`
+                    : `${Math.floor(elapsedSeconds / 60)}m ${String(elapsedSeconds % 60).padStart(2, '0')}s elapsed`}
+                </div>
               </div>
             </div>
           )}
