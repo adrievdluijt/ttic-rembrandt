@@ -24,6 +24,16 @@
 // redeploy automatically.
 // =============================================================================
 
+// Vercel function timeout. Default on Pro is 60 seconds; the model can
+// genuinely take longer than that to produce a careful structured review
+// against a long system prompt, particularly for PDF input or near-cap
+// text input. 300 seconds is the Pro maximum and matches the matched
+// client-side timeout in App.jsx. On Hobby plans this export is ignored
+// (capped at 10 seconds), so anyone running this on Hobby will see
+// reviews fail well before that — but they shouldn't be running this on
+// Hobby anyway.
+export const maxDuration = 300;
+
 const JURISDICTIONS = {
   UK: {
     label: 'United Kingdom',
