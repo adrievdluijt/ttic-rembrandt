@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.7';
+const VERSION = 'v0.9.10';
 const VERSION_DATE = '21 May 2026';
 
 // =============================================================================
@@ -29,36 +29,42 @@ const PALETTE = {
   harm:      '#B85A3D',
 };
 
+// Framework chips display the regulatory frameworks that apply under
+// each jurisdiction. Each chip is a link to the framework's definitive
+// source so users can verify what the tool is checking against — a
+// signal that these are real references, not decorative metadata.
+// ISO 22458 is paywalled at the ISO site itself; we link to the BSI
+// overview page as the next-best authoritative source.
 const JURISDICTIONS = {
   UK: {
     label: 'United Kingdom',
     short: 'UK',
     frameworks: [
-      'FCA Consumer Duty',
-      'Fundraising Regulator',
-      'ASA CAP code',
-      'ISO 22458',
-      'GDS content standards',
-      'WCAG 2.2 AA',
+      { name: 'FCA Consumer Duty',     url: 'https://www.fca.org.uk/firms/consumer-duty-information-firms' },
+      { name: 'Fundraising Regulator', url: 'https://www.fundraisingregulator.org.uk/code' },
+      { name: 'ASA CAP code',          url: 'https://www.asa.org.uk/codes-and-rulings/advertising-codes.html' },
+      { name: 'ISO 22458',             url: 'https://www.bsigroup.com/en-GB/standards/bs-iso-22458/' },
+      { name: 'GDS content standards', url: 'https://www.gov.uk/guidance/content-design/writing-for-gov-uk' },
+      { name: 'WCAG 2.2 AA',           url: 'https://www.w3.org/TR/WCAG22/' },
     ],
   },
   EU: {
     label: 'European Union',
     short: 'EU',
     frameworks: [
-      'European Accessibility Act',
-      'EN 301 549',
-      'ISO 22458',
+      { name: 'European Accessibility Act', url: 'https://employment-social-affairs.ec.europa.eu/policies-and-activities/social-protection-social-inclusion/persons-disabilities/union-equality-strategy-rights-persons-disabilities-2021-2030/european-accessibility-act_en' },
+      { name: 'EN 301 549',                 url: 'https://www.etsi.org/deliver/etsi_en/301500_301599/301549/' },
+      { name: 'ISO 22458',                  url: 'https://www.bsigroup.com/en-GB/standards/bs-iso-22458/' },
     ],
   },
   US: {
     label: 'United States',
     short: 'US',
     frameworks: [
-      'Plain Writing Act',
-      'Section 508',
-      'ADA',
-      'ISO 22458',
+      { name: 'Plain Writing Act', url: 'https://www.plainlanguage.gov/law/' },
+      { name: 'Section 508',       url: 'https://www.section508.gov/' },
+      { name: 'ADA',               url: 'https://www.ada.gov/' },
+      { name: 'ISO 22458',         url: 'https://www.bsigroup.com/en-GB/standards/bs-iso-22458/' },
     ],
   },
 };
@@ -66,7 +72,7 @@ const JURISDICTIONS = {
 const ROLE_CHIPS = [
   "I'm drafting this myself",
   "I'm editing what a colleague drafted",
-  "I'm shipping content my team wrote",
+  "I'm publishing content my team wrote",
   "I received this",
   "I'm reviewing third-party work",
 ];
@@ -289,12 +295,19 @@ const calculateReadability = (text) => {
 
 // =============================================================================
 // READABILITY CONTEXT — audience-appropriate targets for both F-K and SMOG
+//
+// Per-metric target descriptors (fkTargetText, smogTargetText) are used
+// by the structured two-row readability display. The combined targetText
+// remains for the markdown export, where a single-line description reads
+// more naturally than a two-row layout.
 // =============================================================================
 const getReadabilityContext = (readingAge, smog, contentType) => {
   const t = (contentType || '').toLowerCase();
 
   let fkTarget = null;
   let smogTarget = null;
+  let fkTargetText = null;
+  let smogTargetText = null;
   let modeName = null;
   let targetText = null;
   let isLivingExperience = false;
@@ -302,23 +315,31 @@ const getReadabilityContext = (readingAge, smog, contentType) => {
   if (t.includes('crisis') || t.includes('emergency')) {
     fkTarget = 7;
     smogTarget = 8;
+    fkTargetText = '7 or below';
+    smogTargetText = '8 or below';
     modeName = 'crisis or emergency content';
     targetText = 'aim for F-K 7 or below and SMOG 8 or below';
     isLivingExperience = true;
   } else if (t.includes('service content')) {
     fkTarget = 8;
     smogTarget = 9;
+    fkTargetText = 'around 8 — GDS standard';
+    smogTargetText = '9 or below — NHS standard';
     modeName = 'service content';
     targetText = 'GDS aims for F-K around 8, NHS SMOG ≤ 9';
     isLivingExperience = true;
   } else if (t.includes('fundraising') || t.includes('emotional appeal') || t.includes('appeal email') || t.includes('donor')) {
     fkTarget = 11;
     smogTarget = 11;
+    fkTargetText = '9 to 11 typical';
+    smogTargetText = '10 to 11 typical';
     modeName = 'fundraising content';
     targetText = 'F-K 9-11 and SMOG 10-11 typical';
   } else if (t.includes('marketing') || t.includes('commercial') || t.includes('promotional')) {
     fkTarget = 10;
     smogTarget = 11;
+    fkTargetText = '8 to 10 typical';
+    smogTargetText = '9 to 11 typical';
     modeName = 'marketing content';
     targetText = 'F-K 8-10 and SMOG 9-11 typical';
   } else if (t.includes('organisational') || t.includes('overview') ||
@@ -326,22 +347,27 @@ const getReadabilityContext = (readingAge, smog, contentType) => {
              t.includes('article') || t.includes('explainer')) {
     fkTarget = 12;
     smogTarget = 12;
+    fkTargetText = '9 to 12 typical';
+    smogTargetText = '10 to 12 typical';
     modeName = 'content for engaged adult audiences';
     targetText = 'F-K 9-12 and SMOG 10-12 typical';
   }
 
   if (!fkTarget) return null;
 
-  const exceedsTarget =
-    (typeof readingAge === 'number' && readingAge > fkTarget) ||
-    (typeof smog === 'number' && smog > smogTarget);
+  const fkExceedsTarget = typeof readingAge === 'number' && readingAge > fkTarget;
+  const smogExceedsTarget = typeof smog === 'number' && smog > smogTarget;
 
   return {
     fkTarget,
     smogTarget,
+    fkTargetText,
+    smogTargetText,
+    fkExceedsTarget,
+    smogExceedsTarget,
     modeName,
     targetText,
-    exceedsTarget,
+    exceedsTarget: fkExceedsTarget || smogExceedsTarget,
     isLivingExperience,
   };
 };
@@ -360,7 +386,7 @@ const buildReviewMarkdown = (results, jurisdiction) => {
     if (fk || sm) {
       const ctx = getReadabilityContext(fk, sm, results.overall.contentType);
       const parts = [];
-      if (fk) parts.push(`F-K ${fk}`);
+      if (fk) parts.push(`Flesch-Kincaid ${fk}`);
       if (sm) parts.push(`SMOG ${sm}`);
       const line = `**Reading age:** ${parts.join(' · ')}`;
       if (ctx && ctx.exceedsTarget) {
@@ -1009,14 +1035,29 @@ export default function App() {
     .rb-fw-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0; align-items: center; }
     .rb-fw-label { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; font-weight: 600; margin-right: 4px; }
     .rb-fw {
-      font-size: 12px; color: var(--ink);
-      padding: 4px 10px; border-radius: 999px;
+      font-size: 12px;
+      border-radius: 999px;
       background: var(--surface); border: 1px solid var(--rule);
       white-space: nowrap;
+      padding: 0;
+      overflow: hidden;
     }
     .rb-fw[data-tone="coral"] { border-left: 3px solid var(--coral); }
     .rb-fw[data-tone="sky"]   { border-left: 3px solid var(--sky); }
     .rb-fw[data-tone="sage"]  { border-left: 3px solid var(--sage); }
+    .rb-fw-link {
+      display: block;
+      padding: 4px 10px;
+      color: var(--ink);
+      text-decoration: none;
+      transition: background-color 0.12s ease;
+    }
+    .rb-fw-link:hover { background: var(--panel); text-decoration: underline; }
+    .rb-fw-link:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 1px;
+      background: var(--panel);
+    }
 
     @media (max-width: 700px) {
       .rb-header-inner { padding: 14px 20px 10px; }
@@ -1045,6 +1086,7 @@ export default function App() {
       color: var(--ink); margin: 0 0 8px;
     }
     .rb-about-body { font-size: 16px; line-height: 1.5; color: var(--ink); margin: 0; }
+    .rb-about-body + .rb-about-body { margin-top: 10px; }
     .rb-about-body strong { font-weight: 600; }
     .rb-about-meta {
       margin-top: 14px; padding-top: 12px;
@@ -1365,12 +1407,69 @@ export default function App() {
     }
     .rb-verdict-summary { font-size: 16px; line-height: 1.65; color: var(--ink); }
     .rb-verdict-meta {
-      display: flex; flex-direction: column; gap: 4px;
-      font-size: 14px; color: var(--ink); margin-top: 14px;
+      display: flex; flex-direction: column; gap: 8px;
+      font-size: 14px; color: var(--ink); margin-top: 16px;
     }
     .rb-verdict-meta strong { font-weight: 600; color: var(--ink); }
     .rb-verdict-meta-note {
       font-size: 12px; font-style: italic; color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ---- Structured reading-age display ----
+       Replaces the inline "F-K X · SMOG Y" string with a two-row layout
+       (one row per metric, three columns: name, score, target). Easier
+       to scan, full names instead of acronyms, target context per metric.
+       Lucie Johnson's feedback flagged the inline format as hard to scan
+       and the acronyms as opaque even to working content designers. */
+    .rb-readability-heading {
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      margin-bottom: 2px;
+    }
+    .rb-readability-rows {
+      display: grid;
+      grid-template-columns: max-content auto 1fr;
+      column-gap: 16px;
+      row-gap: 4px;
+      padding: 10px 14px;
+      background: var(--panel);
+      border-radius: 6px;
+    }
+    .rb-readability-row {
+      display: contents;
+    }
+    .rb-readability-name {
+      font-size: 14px;
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .rb-readability-score {
+      font-size: 14px;
+      color: var(--ink);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .rb-readability-score-over {
+      color: var(--coral);
+    }
+    .rb-readability-target {
+      font-size: 13px;
+      color: var(--muted);
+      font-style: italic;
+    }
+    @media (max-width: 520px) {
+      .rb-readability-rows {
+        grid-template-columns: max-content 1fr;
+        row-gap: 2px;
+      }
+      .rb-readability-target {
+        grid-column: 1 / -1;
+        padding-bottom: 6px;
+      }
+      .rb-readability-row:last-child .rb-readability-target {
+        padding-bottom: 0;
+      }
     }
 
     /* ---- Readability "Show calculation" disclosure ----
@@ -1763,7 +1862,11 @@ export default function App() {
           <ul className="rb-fw-list" aria-label="Frameworks applied" aria-live="polite">
             <li className="rb-fw-label">Frameworks</li>
             {JURISDICTIONS[jurisdiction].frameworks.map((fw, i) => (
-              <li key={fw} className="rb-fw" data-tone={frameworkTone(i)}>{fw}</li>
+              <li key={fw.name} className="rb-fw" data-tone={frameworkTone(i)}>
+                <a href={fw.url} target="_blank" rel="noopener noreferrer" className="rb-fw-link">
+                  {fw.name}
+                </a>
+              </li>
             ))}
           </ul>
         </div>
@@ -1780,7 +1883,10 @@ export default function App() {
               <div className="rb-about-block">
                 <h2>What this is</h2>
                 <p className="rb-about-body">
-                  Rembrandt Editor flags content that is likely to fail readers in <strong>living experience</strong> — people moving through grief, fear, pain, exhaustion or the ordinary cognitive compromise of a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where the content is published. Useful whether you are writing it, editing it, shipping it, or trying to understand one you have received.
+                  Rembrandt Editor checks content for readers in <strong>living experience</strong>. That means people moving through grief, fear, pain or exhaustion, or simply having a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where you publish.
+                </p>
+                <p className="rb-about-body">
+                  Useful whether you are writing the content, editing it, publishing it or trying to understand one you have received.
                 </p>
               </div>
               <div className="rb-about-block">
@@ -1792,7 +1898,7 @@ export default function App() {
             </div>
 
             <div className="rb-about-meta">
-              Built by <strong>Adrie van der Luijt</strong> — senior content designer with four decades in government digital services, compliance and trauma-informed practice. Past work includes the Metropolitan Police drink spiking guidance (now used by 81% of police forces in England and Wales), Cancer Research UK, Universal Credit and Cabinet Office pandemic emergency services. <a href={`${SITE}/about-adrie-van-der-luijt/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
+              Built by <strong>Adrie van der Luijt</strong>, a senior content designer with four decades in government, compliance and trauma-informed practice. <a href={`${SITE}/about-adrie-van-der-luijt/`} target="_blank" rel="noopener noreferrer" className="rb-about-meta-link">Read more →</a>
             </div>
           </div>
         </section>
@@ -2030,17 +2136,41 @@ export default function App() {
                   <ProseField text={results.overall.summary} className="rb-verdict-summary" />
                   {(results.overall.readingAge || results.overall.smog) && (
                     <div className="rb-verdict-meta">
-                      <div>
-                        <strong>Reading age: </strong>
-                        {results.overall.readingAge && <>F-K {results.overall.readingAge}</>}
-                        {results.overall.readingAge && results.overall.smog && <> · </>}
-                        {results.overall.smog && <>SMOG {results.overall.smog}</>}
+                      <div className="rb-readability-heading">Reading age</div>
+
+                      <div className="rb-readability-rows" role="table" aria-label="Readability scores">
+                        {results.overall.readingAge && (
+                          <div className="rb-readability-row" role="row">
+                            <span className="rb-readability-name" role="cell">Flesch-Kincaid</span>
+                            <span
+                              className={`rb-readability-score${readabilityCtx?.fkExceedsTarget ? ' rb-readability-score-over' : ''}`}
+                              role="cell"
+                            >
+                              {results.overall.readingAge}
+                            </span>
+                            <span className="rb-readability-target" role="cell">
+                              {readabilityCtx?.fkTargetText ? `Target: ${readabilityCtx.fkTargetText}` : ''}
+                            </span>
+                          </div>
+                        )}
+                        {results.overall.smog && (
+                          <div className="rb-readability-row" role="row">
+                            <span className="rb-readability-name" role="cell">SMOG</span>
+                            <span
+                              className={`rb-readability-score${readabilityCtx?.smogExceedsTarget ? ' rb-readability-score-over' : ''}`}
+                              role="cell"
+                            >
+                              {results.overall.smog}
+                            </span>
+                            <span className="rb-readability-target" role="cell">
+                              {readabilityCtx?.smogTargetText ? `Target: ${readabilityCtx.smogTargetText}` : ''}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      {readabilityCtx && readabilityCtx.exceedsTarget && (
-                        <div>For {readabilityCtx.modeName}, {readabilityCtx.targetText}.</div>
-                      )}
+
                       <div className="rb-verdict-meta-note">
-                        F-K weights sentence length; SMOG counts polysyllabic words (NHS standard).
+                        Flesch-Kincaid (F-K) measures sentence load. SMOG measures vocabulary density and is the NHS healthcare standard.
                         {readabilityCtx?.isLivingExperience && readabilityCtx.exceedsTarget &&
                           ' Lower is better for content read in distress.'}
                       </div>
