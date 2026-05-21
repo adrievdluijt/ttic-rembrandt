@@ -71,7 +71,7 @@ The voice and output sections above instruct you to address the writer directly 
 Apply the relevant rule below to the summary field, every observation field, every suggestion field, and the framing of the rewrite.
 
 - If they wrote it or are drafting it: keep the default voice. Address them as "you" and frame suggestions as direct edits.
-- If they are editing or shipping content others wrote: refer to "the writer" for the original text. Use "you" only when speaking to the reviewer's editorial agency — what they could push back on upstream, what they are accountable for as the shipper. Distinguish clearly between what the writer could change and what the reviewer can change.
+- If they are editing or publishing content others wrote: refer to "the writer" for the original text. Use "you" only when speaking to the reviewer's editorial agency — what they could push back on upstream, what they are accountable for as the person publishing it. Distinguish clearly between what the writer could change and what the reviewer can change.
 - If they received this content from an institution: do NOT address anyone as "you" in observations, suggestions, or the summary. Refer to "the writer" or "the sender" throughout. Shift from coaching to diagnostic stance — you are explaining what the content is doing wrong, not coaching someone to fix it. Frame the rewrite as "here is what a trauma-informed version of this content would look like" — illustrative, not instructional. Do not prescribe edits the reviewer cannot make.
 - If they are reviewing third-party work for teaching, analysis, or critique: use a neutral analytical voice. Avoid both "you" addressing and the coaching register. Refer to "the writer" or "this content".
 
