@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.4';
+const VERSION = 'v0.9.5';
 const VERSION_DATE = '19 May 2026';
 
 // =============================================================================
@@ -73,6 +73,14 @@ const ROLE_CHIPS = [
 
 const CHAR_LIMIT = 8000;
 const PDF_MAX_BYTES = 2_500_000; // ~2.5 MB raw, ~3.3 MB base64 — sits under Vercel body limit
+
+// Client-side fetch timeout for the /api/review call. Set above Vercel's
+// 60-second function ceiling so the server has every chance to return its
+// own error (truncation, parse failure, upstream 5xx) first. This timeout
+// is a backstop for the genuinely unknown — a network drop, a hung
+// connection, a deploy that returns nothing — so the user is never left
+// watching the loading state indefinitely.
+const REVIEW_FETCH_TIMEOUT_MS = 75_000;
 const ABOUT_DISMISS_KEY = 'rb_about_dismissed_v3';
 
 const SITE = 'https://traumainformedcontent.com';
@@ -598,6 +606,15 @@ export default function App() {
     const calculatedReadingAge = readability ? readability.readingAge : null;
     const calculatedSmog = readability ? readability.smog : null;
 
+    // AbortController + timer give us a hard cap on how long the loading
+    // state can sit. If the fetch hasn't resolved within
+    // REVIEW_FETCH_TIMEOUT_MS, we abort, the catch block fires with an
+    // AbortError, and the user sees a specific message instead of a
+    // hanging spinner. We clear the timer in the finally block so it
+    // doesn't fire late against an already-resolved fetch.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REVIEW_FETCH_TIMEOUT_MS);
+
     try {
       const body = pdfFile
         ? { pdfData: pdfFile.data, pdfFilename: pdfFile.name, jurisdiction, role, notes: notesSnapshot }
@@ -607,6 +624,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -648,9 +666,23 @@ export default function App() {
       );
     } catch (e) {
       console.error(e);
-      setError(e.message || 'Something went wrong. Please try again.');
+      // Differentiate the three failure shapes so the user gets actionable
+      // feedback rather than a generic "something went wrong":
+      //   - AbortError: our own timeout fired. Tell them so.
+      //   - TypeError from fetch: usually a network or CORS problem
+      //     before the request reached the server.
+      //   - Anything else: surface the server's error message if we have
+      //     one, otherwise fall back to a generic message.
+      if (e.name === 'AbortError') {
+        setError("The review didn't come back in time. Try again, or shorten the passage if it's long. If this keeps happening, please use Send feedback so we can investigate.");
+      } else if (e instanceof TypeError) {
+        setError("Couldn't reach the review service. Check your connection and try again.");
+      } else {
+        setError(e.message || 'Something went wrong. Please try again.');
+      }
       setAnnouncement('Review failed. Please try again.');
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
