@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.6';
+const VERSION = 'v0.9.7';
 const VERSION_DATE = '21 May 2026';
 
 // =============================================================================
@@ -406,6 +406,40 @@ const buildReviewMarkdown = (results, jurisdiction) => {
   lines.push(`Reviewed with Rembrandt Editor ${VERSION} · ${SITE.replace(/^https?:\/\//, '')}`);
 
   return lines.join('\n');
+};
+
+// =============================================================================
+// PROSE FIELD — paragraph-aware renderer for model-emitted long-form text
+//
+// Why this exists: summary, observation, and suggestion strings can run
+// long. Rendering them as a single block of prose buries the structure
+// the model already put in the text. The model can emit \n\n where a
+// paragraph break would genuinely aid scannability (e.g. in the summary,
+// shifting from "what's working" to "what needs attention"); we split
+// on those and render each chunk as its own <p>. Single-paragraph
+// content renders as a plain <div> so layout doesn't shift around for
+// the common case.
+//
+// We deliberately don't support markdown — bullets, bold, headings —
+// because the model's outputs are constrained JSON and adding markdown
+// rendering opens a much larger surface area than the problem warrants.
+// Paragraph breaks are the smallest useful intervention.
+// =============================================================================
+const ProseField = ({ text, className }) => {
+  if (!text) return null;
+  const trimmed = String(text).trim();
+  if (!trimmed) return null;
+  const paras = trimmed.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (paras.length <= 1) {
+    return <div className={className}>{trimmed}</div>;
+  }
+  return (
+    <div className={className}>
+      {paras.map((p, i) => (
+        <p key={i} className="rb-prose-para">{p}</p>
+      ))}
+    </div>
+  );
 };
 
 // =============================================================================
@@ -1389,12 +1423,21 @@ export default function App() {
     .rb-issue-quote { padding: 12px 16px; border-radius: 6px; font-size: 14px; line-height: 1.55; font-style: italic; margin-bottom: 12px; }
     .rb-issue-problem { font-size: 14px; line-height: 1.65; margin-bottom: 12px; color: var(--ink); }
     .rb-issue-suggest { padding: 14px 16px; background: var(--panel); border-radius: 6px; border-left: 3px solid var(--ink); font-size: 14px; line-height: 1.6; color: var(--ink); }
+    .rb-issue-suggest-body { font-size: 14px; line-height: 1.6; color: var(--ink); }
     .rb-issue-suggest-label { font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--ink); margin-bottom: 4px; }
+
+    /* ---- Paragraph spacing inside prose fields ----
+       ProseField splits model-emitted text on \n\n and renders each
+       chunk as a <p>. The default browser margin would be too large for
+       inline use; this gives consistent visual paragraph spacing inside
+       summary, observation and suggestion blocks without overdoing it. */
+    .rb-prose-para { margin: 0 0 12px; }
+    .rb-prose-para:last-child { margin-bottom: 0; }
 
     /* ---- Flags ---- */
     .rb-flag { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 18px; }
-    .rb-flag-fw { font-size: 12px; font-weight: 700; color: var(--ink); margin-bottom: 4px; letter-spacing: 0.02em; }
-    .rb-flag-text { font-size: 13px; line-height: 1.6; color: var(--ink); }
+    .rb-flag-fw { font-size: 14px; font-weight: 700; color: var(--ink); margin-bottom: 6px; letter-spacing: 0; }
+    .rb-flag-text { font-size: 14px; line-height: 1.65; color: var(--ink); }
 
     /* ---- Rewrite ---- */
     .rb-rewrite-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
@@ -1984,7 +2027,7 @@ export default function App() {
                       {results.overall.contextApplied}
                     </div>
                   )}
-                  <div className="rb-verdict-summary">{results.overall.summary}</div>
+                  <ProseField text={results.overall.summary} className="rb-verdict-summary" />
                   {(results.overall.readingAge || results.overall.smog) && (
                     <div className="rb-verdict-meta">
                       <div>
@@ -2038,10 +2081,13 @@ export default function App() {
                           <blockquote className="rb-issue-quote" style={{ background: s.bg }}>
                             "{issue.excerpt}"
                           </blockquote>
-                          <div className="rb-issue-problem">{issue.observation || issue.problem}</div>
+                          <ProseField
+                            text={issue.observation || issue.problem}
+                            className="rb-issue-problem"
+                          />
                           <div className="rb-issue-suggest">
                             <div className="rb-issue-suggest-label">Try instead</div>
-                            {issue.suggestion}
+                            <ProseField text={issue.suggestion} className="rb-issue-suggest-body" />
                           </div>
                         </article>
                       );
