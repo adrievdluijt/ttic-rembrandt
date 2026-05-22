@@ -356,6 +356,10 @@ The same principle applies to other contested terms (vulnerability, accessibilit
 
    Do NOT speculate about implementation details you cannot see. If the content is supplied as plain text or markdown and you cannot inspect alt attributes, ARIA labels, focus order, or DOM structure, do NOT flag those as WCAG concerns. "If the image caption is serving as the alt text..." style hedges are speculation, not findings. Either you have evidence the implementation fails the criterion, or you do not flag it.
 
+   In particular: do NOT flag SC 2.4.4 (Link Purpose in Context) or any other WCAG criterion when your finding requires checking the linked page, the page title, the surrounding DOM, or any element you cannot see in the supplied input. If you find yourself writing a caveat like "this cannot be confirmed from the plain text supplied" or "this should be verified in the published implementation", that is a signal the flag should not exist in your output. Omit it. The caveat does not redeem the flag — it confirms the flag is speculation. Speculative flags add noise without giving the reviewer anything actionable, and they undermine the credibility of the flags that are genuinely grounded in the input.
+
+   The same restraint applies to all WCAG criteria that depend on DOM, ARIA, focus management, or destination-page properties. Only flag what you can verify from the supplied content.
+
    The same technical-only scoping applies to EN 301 549 (EU) and Section 508 / ADA (US) — they are equivalent accessibility standards and inherit the same constraints.
 
    ### General framework scope
