@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.11';
+const VERSION = 'v0.9.12';
 const VERSION_DATE = '21 May 2026';
 
 // =============================================================================
@@ -318,7 +318,7 @@ const getReadabilityContext = (readingAge, smog, contentType) => {
     fkTargetText = '7 or below';
     smogTargetText = '8 or below';
     modeName = 'crisis or emergency content';
-    targetText = 'aim for F-K 7 or below and SMOG 8 or below';
+    targetText = 'aim for Flesch-Kincaid 7 or below and SMOG 8 or below';
     isLivingExperience = true;
   } else if (t.includes('service content')) {
     fkTarget = 8;
@@ -326,7 +326,7 @@ const getReadabilityContext = (readingAge, smog, contentType) => {
     fkTargetText = 'around 8 — GDS standard';
     smogTargetText = '9 or below — NHS standard';
     modeName = 'service content';
-    targetText = 'GDS aims for F-K around 8, NHS SMOG ≤ 9';
+    targetText = 'GDS aims for Flesch-Kincaid around 8, NHS SMOG ≤ 9';
     isLivingExperience = true;
   } else if (t.includes('fundraising') || t.includes('emotional appeal') || t.includes('appeal email') || t.includes('donor')) {
     fkTarget = 11;
@@ -334,14 +334,14 @@ const getReadabilityContext = (readingAge, smog, contentType) => {
     fkTargetText = '9 to 11 typical';
     smogTargetText = '10 to 11 typical';
     modeName = 'fundraising content';
-    targetText = 'F-K 9-11 and SMOG 10-11 typical';
+    targetText = 'Flesch-Kincaid 9-11 and SMOG 10-11 typical';
   } else if (t.includes('marketing') || t.includes('commercial') || t.includes('promotional')) {
     fkTarget = 10;
     smogTarget = 11;
     fkTargetText = '8 to 10 typical';
     smogTargetText = '9 to 11 typical';
     modeName = 'marketing content';
-    targetText = 'F-K 8-10 and SMOG 9-11 typical';
+    targetText = 'Flesch-Kincaid 8-10 and SMOG 9-11 typical';
   } else if (t.includes('organisational') || t.includes('overview') ||
              t.includes('educational') || t.includes('blog') ||
              t.includes('article') || t.includes('explainer')) {
@@ -350,7 +350,7 @@ const getReadabilityContext = (readingAge, smog, contentType) => {
     fkTargetText = '9 to 12 typical';
     smogTargetText = '10 to 12 typical';
     modeName = 'content for engaged adult audiences';
-    targetText = 'F-K 9-12 and SMOG 10-12 typical';
+    targetText = 'Flesch-Kincaid 9-12 and SMOG 10-12 typical';
   }
 
   if (!fkTarget) return null;
