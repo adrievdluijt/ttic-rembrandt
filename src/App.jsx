@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.10';
+const VERSION = 'v0.9.11';
 const VERSION_DATE = '21 May 2026';
 
 // =============================================================================
@@ -1883,7 +1883,7 @@ export default function App() {
               <div className="rb-about-block">
                 <h2>What this is</h2>
                 <p className="rb-about-body">
-                  Rembrandt Editor checks content for readers in <strong>living experience</strong>. That means people moving through grief, fear, pain, exhaustion or simply having a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where you publish.
+                  Rembrandt Editor checks content for readers in <strong>living experience</strong>. That means people moving through grief, fear, pain or exhaustion, or simply having a difficult day. It reviews against trauma-informed principles and the regulatory frameworks that apply where you publish.
                 </p>
                 <p className="rb-about-body">
                   Useful whether you are writing the content, editing it, publishing it or trying to understand one you have received.
