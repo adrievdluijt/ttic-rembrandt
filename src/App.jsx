@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { authFetch } from './lib/supabase';
 
 // =============================================================================
 // VERSION & CONFIG
@@ -699,7 +700,7 @@ export default function App() {
         ? { pdfData: pdfFile.data, pdfFilename: pdfFile.name, jurisdiction, role, notes: notesSnapshot }
         : { content, jurisdiction, role, notes: notesSnapshot, calculatedReadingAge, calculatedSmog };
 
-      const response = await fetch('/api/review', {
+const response = await authFetch('/api/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -866,7 +867,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('/api/feedback', {
+const response = await authFetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
