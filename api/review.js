@@ -1,5 +1,5 @@
 // =============================================================================
-// /api/review — Vercel serverless function
+// /api/review — Vercel serverless function (Vite + React SPA)
 //
 // Why this exists:
 //   The browser must NOT call api.anthropic.com directly with your API key,
@@ -12,12 +12,12 @@
 //   directly. This kills the "review could not be processed" class of
 //   intermittent error caused by occasional malformed JSON from the model.
 //
-// v0.10.0 — auth and rate limiting:
-//   Reviews now require a signed-in Supabase user. Anonymous requests are
-//   rejected with 401. Free-tier users are capped at 3 reviews per 24
-//   hours; Professional and Team plans have higher caps. Every successful
-//   review is logged to the `reviews` table with token counts and
-//   estimated cost for telemetry and per-user accounting.
+// v0.10.1 — auth and rate limiting (Vite SPA edition):
+//   Reviews require a signed-in Supabase user. The React app stores the
+//   session in localStorage (Supabase SPA default) and sends the access
+//   token in the Authorization header. This function verifies the token,
+//   looks up the user's plan, enforces per-user daily caps, and logs
+//   token counts and estimated cost to the `reviews` table.
 //
 // Readability (v0.9.3):
 //   Two complementary scores are calculated deterministically by the
@@ -31,7 +31,7 @@
 // redeploy automatically.
 // =============================================================================
 
-import { getSupabaseServerClient } from '../../lib/supabase-server';
+import { createClient } from '@supabase/supabase-js'
 
 // Vercel function timeout. Default on Pro is 60 seconds; the model can
 // genuinely take longer than that to produce a careful structured review
@@ -578,7 +578,7 @@ const attemptReview = async (systemPrompt, userContent) => {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -587,17 +587,42 @@ export default async function handler(req, res) {
     console.error('ANTHROPIC_API_KEY environment variable is not set');
     return res.status(500).json({ error: 'Server is not configured. Contact the site administrator.' });
   }
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    console.error('SUPABASE_URL or SUPABASE_ANON_KEY environment variable is not set');
+    return res.status(500).json({ error: 'Server is not configured. Contact the site administrator.' });
+  }
 
   // ===========================================================================
-  // AUTH CHECK
+  // AUTH CHECK — via Authorization: Bearer <token> header
   // ===========================================================================
-  // Reviews require a signed-in Supabase user. Anonymous requests are
-  // rejected here, before any body parsing or expensive validation.
-  const supabase = getSupabaseServerClient(req, res);
+  // The SPA stores the Supabase session in localStorage and sends the access
+  // token in the Authorization header. We verify the token against Supabase
+  // and create a user-scoped client so RLS policies on the reviews table
+  // enforce per-user data isolation on insert.
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'You need to sign in to use Rembrandt.',
+    });
+  }
+
+  // User-scoped Supabase client. Every query through this client carries the
+  // user's JWT, so auth.uid() inside RLS policies resolves correctly.
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY,
+    {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    }
+  );
+
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser();
+  } = await supabase.auth.getUser(token);
 
   if (authError || !user) {
     return res.status(401).json({
@@ -721,12 +746,10 @@ export default async function handler(req, res) {
         result.parsed.overall.contextApplied = safeNotes;
       }
 
-      // Log this review to the reviews table. We use the user-scoped
-      // Supabase client (cookies passed through), so RLS on the reviews
-      // table will enforce that user_id matches auth.uid(). Errors here
-      // are logged but do not block the response — the user gets their
-      // review even if telemetry fails. Worst case is one extra review
-      // slips through tomorrow's count.
+      // Log this review. The user-scoped Supabase client means the insert
+      // runs as auth.uid() = user.id, so RLS is satisfied. Errors are
+      // logged but do not block the response — the user gets their review
+      // even if telemetry fails.
       const inputTokens = result.usage?.input_tokens ?? null;
       const outputTokens = result.usage?.output_tokens ?? null;
       const cost =
