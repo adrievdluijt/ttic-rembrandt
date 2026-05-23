@@ -490,7 +490,7 @@ ${buildReadabilityOverride(calculatedReadingAge, calculatedSmog)}`;
 const MAX_INPUT_LENGTH = 8500;
 const MAX_PDF_BASE64 = 3_500_000;
 const MODEL = 'claude-sonnet-4-6';
-const MAX_TOKENS = 8192;
+const MAX_TOKENS = 5000;
 const MAX_ATTEMPTS = 3;
 
 const extractJson = (text) => {
