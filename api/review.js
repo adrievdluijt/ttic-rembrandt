@@ -12,6 +12,13 @@
 //   directly. This kills the "review could not be processed" class of
 //   intermittent error caused by occasional malformed JSON from the model.
 //
+// v0.10.0 — auth and rate limiting:
+//   Reviews now require a signed-in Supabase user. Anonymous requests are
+//   rejected with 401. Free-tier users are capped at 3 reviews per 24
+//   hours; Professional and Team plans have higher caps. Every successful
+//   review is logged to the `reviews` table with token counts and
+//   estimated cost for telemetry and per-user accounting.
+//
 // Readability (v0.9.3):
 //   Two complementary scores are calculated deterministically by the
 //   frontend for text input — Flesch-Kincaid (sentence-length weighted)
@@ -24,6 +31,8 @@
 // redeploy automatically.
 // =============================================================================
 
+import { getSupabaseServerClient } from '../../lib/supabase-server';
+
 // Vercel function timeout. Default on Pro is 60 seconds; the model can
 // genuinely take longer than that to produce a careful structured review
 // against a long system prompt, particularly for PDF input or near-cap
@@ -33,6 +42,20 @@
 // reviews fail well before that — but they shouldn't be running this on
 // Hobby anyway.
 export const maxDuration = 300;
+
+// Sonnet 4.6 pricing per million tokens, in USD. Used only for the
+// cost_usd column in the reviews table. Update these if Anthropic
+// pricing changes.
+const INPUT_COST_PER_MILLION = 3;
+const OUTPUT_COST_PER_MILLION = 15;
+
+// Daily review caps by plan. Plan strings match the check constraint on
+// the profiles table in supabase-schema.sql.
+const DAILY_LIMITS = {
+  free: 3,
+  professional: 100,
+  team: 500,
+};
 
 const JURISDICTIONS = {
   UK: {
@@ -548,7 +571,8 @@ const attemptReview = async (systemPrompt, userContent) => {
   const parsed = extractJson(text);
   if (!parsed) return { ok: false, kind: 'parse', rawText: text };
 
-  return { ok: true, parsed };
+  // Return usage alongside the parsed output so the handler can log it.
+  return { ok: true, parsed, usage: data.usage || null };
 };
 
 export default async function handler(req, res) {
@@ -564,6 +588,68 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server is not configured. Contact the site administrator.' });
   }
 
+  // ===========================================================================
+  // AUTH CHECK
+  // ===========================================================================
+  // Reviews require a signed-in Supabase user. Anonymous requests are
+  // rejected here, before any body parsing or expensive validation.
+  const supabase = getSupabaseServerClient(req, res);
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return res.status(401).json({
+      error: 'You need to sign in to use Rembrandt.',
+    });
+  }
+
+  // ===========================================================================
+  // PLAN + RATE LIMIT CHECK
+  // ===========================================================================
+  // Look up the user's plan. The profiles table has a trigger that creates
+  // a row with plan='free' on every new auth.users insert, so this should
+  // almost always return a row. maybeSingle() returns null if there isn't
+  // one, in which case we default to 'free'.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('plan')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  const plan = profile?.plan || 'free';
+  const dailyLimit = DAILY_LIMITS[plan] ?? DAILY_LIMITS.free;
+
+  // Count reviews by this user in the last 24 hours.
+  const twentyFourHoursAgo = new Date(
+    Date.now() - 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const { count, error: countError } = await supabase
+    .from('reviews')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .gte('created_at', twentyFourHoursAgo);
+
+  if (countError) {
+    console.error('Rate limit check failed:', countError);
+    return res.status(500).json({
+      error: 'Could not verify your account. Try again in a moment.',
+    });
+  }
+
+  if (count >= dailyLimit) {
+    return res.status(429).json({
+      error: `You've used your ${dailyLimit} reviews for today. Your limit resets in 24 hours.`,
+      reviewsToday: count,
+      dailyLimit,
+    });
+  }
+
+  // ===========================================================================
+  // EXISTING REQUEST VALIDATION (unchanged)
+  // ===========================================================================
   const {
     content,
     pdfData,
@@ -623,6 +709,9 @@ export default async function handler(req, res) {
 
   const systemPrompt = buildSystemPrompt(jurisdiction, safeRole, safeNotes, safeReadingAge, safeSmog);
 
+  // ===========================================================================
+  // RETRY LOOP (existing behaviour) + telemetry logging on success
+  // ===========================================================================
   let lastFailure = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const result = await attemptReview(systemPrompt, userContent);
@@ -631,6 +720,33 @@ export default async function handler(req, res) {
       if (safeNotes && result.parsed.overall) {
         result.parsed.overall.contextApplied = safeNotes;
       }
+
+      // Log this review to the reviews table. We use the user-scoped
+      // Supabase client (cookies passed through), so RLS on the reviews
+      // table will enforce that user_id matches auth.uid(). Errors here
+      // are logged but do not block the response — the user gets their
+      // review even if telemetry fails. Worst case is one extra review
+      // slips through tomorrow's count.
+      const inputTokens = result.usage?.input_tokens ?? null;
+      const outputTokens = result.usage?.output_tokens ?? null;
+      const cost =
+        inputTokens != null && outputTokens != null
+          ? (inputTokens * INPUT_COST_PER_MILLION) / 1_000_000 +
+            (outputTokens * OUTPUT_COST_PER_MILLION) / 1_000_000
+          : null;
+
+      const { error: logError } = await supabase.from('reviews').insert({
+        user_id: user.id,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        jurisdiction,
+        cost_usd: cost,
+      });
+
+      if (logError) {
+        console.error('Failed to log review:', logError);
+      }
+
       return res.status(200).json(result.parsed);
     }
 
