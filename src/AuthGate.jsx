@@ -52,10 +52,17 @@ export default function AuthGate({ children }) {
     return (
       <div
         style={{
-          padding: '4rem',
-          textAlign: 'center',
-          fontFamily: 'system-ui',
-          color: '#666'
+          minHeight: '100vh',
+          background: '#FAFAF6',
+          color: '#5C6B7A',
+          fontFamily:
+            "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '14px',
+          fontStyle: 'italic',
+          letterSpacing: '0.01em'
         }}
       >
         Loading…
