@@ -2285,6 +2285,8 @@ const response = await authFetch('/api/feedback', {
             <a href={`${SITE}/resources/`} target="_blank" rel="noopener noreferrer">Resources</a>
             <a href={`${SITE}/help/`} target="_blank" rel="noopener noreferrer">Help</a>
             <a href={`${SITE}/accessibility/`} target="_blank" rel="noopener noreferrer">Accessibility statement</a>
+                        <a href={`${SITE}/privacy-policy/`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
+                        <a href={`${SITE}/terms/`} target="_blank" rel="noopener noreferrer">Terms of service</a>
             <a href={`${SITE}/about-us/`} target="_blank" rel="noopener noreferrer">About</a>
             <a href={`${SITE}/rembrandt-editor-plus/`} target="_blank" rel="noopener noreferrer">Pricing</a>
             <a href={`${SITE}/contact-us/`} target="_blank" rel="noopener noreferrer">Contact</a>
