@@ -71,7 +71,7 @@ const MAX_TEXT_LENGTH = 8500;
 const MAX_PDF_BASE64_BYTES = 3_500_000; // ~2.6 MB raw — matches App.jsx PDF_MAX_BYTES
 const MAX_NOTES_LENGTH = 2000;
 const MODEL = 'claude-sonnet-4-6';
-const JSON_PARSE_MAX_ATTEMPTS = 3;
+const JSON_PARSE_MAX_ATTEMPTS = 1;
 
 // Vercel function configuration — needs the higher maxDuration ceiling
 // because long reviews can take 60–120 seconds of model output.
@@ -336,7 +336,7 @@ async function callAnthropicWithRetries({ systemPrompt, userContent }) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 4000,
+        max_tokens: 3000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userContent }],
       }),
@@ -359,7 +359,7 @@ async function callAnthropicWithRetries({ systemPrompt, userContent }) {
       return parsed;
     }
 
-    console.warn(`Malformed JSON from model (attempt ${attempt}). Retrying.`);
+console.error(`Malformed JSON from model. Returning failure to client.`);
     lastError = new Error('Model returned malformed JSON');
   }
 
