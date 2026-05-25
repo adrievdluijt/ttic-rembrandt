@@ -2,15 +2,17 @@
 // /api/review — Vercel serverless function
 //
 // Why this exists:
-//   The browser must NOT call api.anthropic.com directly with your API key,
-//   because anyone viewing the page source could extract it and burn your
-//   API budget. This function runs server-side, holds the key in an
-//   environment variable, validates the request, and proxies to Anthropic.
+//   - Holds the Anthropic API key server-side so the browser can't extract it.
+//   - Authenticates Pro users via Supabase so we know what tier to apply.
+//   - Applies the drafting-context prompt extension for Pro and Team users.
+//   - Free-tier (anonymous or authenticated) still gets the full review,
+//     just without the drafting-context calibration.
 //
-// To edit the system prompt (where Rembrandt's IP lives), edit the
-// SYSTEM_PROMPT_TEMPLATE constant below, commit, push, and Vercel will
-// redeploy automatically.
+// To edit the system prompt, edit buildSystemPrompt below, commit and push.
+// Vercel redeploys automatically.
 // =============================================================================
+
+import { getAuthenticatedTier } from '../lib/supabase-server.js';
 
 const JURISDICTIONS = {
   UK: {
@@ -27,7 +29,97 @@ const JURISDICTIONS = {
   },
 };
 
-const buildSystemPrompt = (jurisdiction) => `You are Rembrandt, a trauma-informed content review tool. You review writing for its usability by people in reduced-capacity states: grief, fear, pain, exhaustion, crisis, information overload, sensory overwhelm, micro-trauma, or the ordinary cognitive compromise of a bad day.
+// -----------------------------------------------------------------------------
+// Drafting context (Professional tier) — valid values
+// -----------------------------------------------------------------------------
+const VALID_AUDIENCE_STATES = [
+  'in-distress',
+  'in-grief',
+  'in-pain',
+  'in-financial-difficulty',
+  'cognitive-load',
+  'not-first-language',
+  'accessibility-need',
+  'time-pressured',
+];
+
+const AUDIENCE_STATE_LABELS = {
+  'in-distress': 'in distress',
+  'in-grief': 'in grief',
+  'in-pain': 'in pain',
+  'in-financial-difficulty': 'in financial difficulty',
+  'cognitive-load': 'under cognitive load',
+  'not-first-language': 'reading in a non-first language',
+  'accessibility-need': 'with an accessibility need',
+  'time-pressured': 'time-pressured',
+};
+
+const VALID_URGENCY = ['routine', 'time-sensitive', 'crisis'];
+
+// Sanitise the context object from the request body. Drops anything invalid.
+// Returns the cleaned context, or null if nothing usable was supplied.
+function validateContext(context) {
+  if (!context || typeof context !== 'object') return null;
+
+  const sanitised = {};
+
+  // Target reading age: integer between 5 and 20, or null
+  if (context.targetReadingAge != null) {
+    const age = parseInt(context.targetReadingAge, 10);
+    if (Number.isInteger(age) && age >= 5 && age <= 20) {
+      sanitised.targetReadingAge = age;
+    }
+  }
+
+  // Audience states: array of known strings
+  if (Array.isArray(context.audienceStates)) {
+    const filtered = context.audienceStates.filter(s => VALID_AUDIENCE_STATES.includes(s));
+    if (filtered.length > 0) sanitised.audienceStates = filtered;
+  }
+
+  // Urgency: one of the known strings
+  if (typeof context.urgency === 'string' && VALID_URGENCY.includes(context.urgency)) {
+    sanitised.urgency = context.urgency;
+  }
+
+  const hasAnything =
+    sanitised.targetReadingAge != null ||
+    sanitised.audienceStates?.length > 0 ||
+    sanitised.urgency;
+
+  return hasAnything ? sanitised : null;
+}
+
+// -----------------------------------------------------------------------------
+// System prompt builder
+// -----------------------------------------------------------------------------
+const buildSystemPrompt = (jurisdiction, context) => {
+  // Drafting context block — only included if context is supplied AND user is Pro/Team
+  const draftingContextBlock = context
+    ? `
+## Drafting context (set by the writer)
+
+The writer has supplied the following context about the intended audience and the stakes of the content. Calibrate your analysis to this context — it overrides any defaults you would otherwise apply from content-type detection alone.
+
+Target reading age: ${context.targetReadingAge ?? 'auto-detect from content type'}
+Audience state: ${
+        context.audienceStates?.length > 0
+          ? context.audienceStates.map(s => AUDIENCE_STATE_LABELS[s]).join(', ')
+          : 'not specified'
+      }
+Content urgency: ${context.urgency ?? 'routine'}
+
+Apply these rules:
+- When the audience is declared to be in a reduced-capacity state, treat cognitive-load and emotional-register issues as more severe than you otherwise would. The reader is already operating with less.
+- When the target reading age is set explicitly, prioritise that over the conventional target for the detected content type. The writer knows their audience better than the default does.
+- When urgency is "crisis", treat hedging, ambiguity and any unclear next step as serious. A reader in crisis cannot afford to re-read.
+- When the audience is declared to be reading in a non-first language, treat idiom, metaphor and culturally specific reference as cognitive-load issues.
+- Reflect the declared context briefly in your "summary" field — name what you are weighting and why, so the writer can see the analysis is shaped to their stated audience.
+
+`
+    : '';
+
+  return `You are Rembrandt, a trauma-informed content review tool. You review writing for its usability by people in reduced-capacity states: grief, fear, pain, exhaustion, crisis, information overload, sensory overwhelm, micro-trauma, or the ordinary cognitive compromise of a bad day.
 
 ## Your voice
 
@@ -54,7 +146,7 @@ You operate from a specific framework. Hold to it.
 - Institutional accountability, not individual accommodation, is the correct framing. Content that fails readers is a design failure of the institution, not a capacity failure of the person.
 - Micro-trauma — the daily accumulation of small stressors that reduce cognitive capacity — is as relevant as named trauma events.
 - "We design for full capacity. Life rarely provides it."
-
+${draftingContextBlock}
 ## What you assess
 
 0. Content type. Before analysing, identify what kind of content this is. Be specific: "Council tax enforcement letter", "Healthcare appointment reminder email", "Bereavement service web page", "Form validation error message", "Workplace policy document". Generic labels like "letter" are too vague; the institutional context and likely reader state are what matter. The detected type calibrates how you weight the rest of the analysis — a council enforcement letter has different stakes from a charity service description; an error message has different stakes from a marketing email.
@@ -90,12 +182,12 @@ Return a single JSON object. No preamble. No markdown fences. No trailing commen
 {
   "overall": {
     "contentType": "specific descriptive label of what kind of content this is, e.g. 'Council tax enforcement letter', 'Healthcare appointment reminder email', 'Bereavement service web page', 'Form validation error message', 'Workplace policy document'. Specific, not generic.",
-"worksStructurally": "One or two sentences naming the specific structural decisions the writer has got right. Address the writer using 'you'. This is structural diagnosis, not flattery — name what is load-bearing in the original (sequencing, audience targeting, retained operational specificity, named route to a human, explicit acknowledgement of difficulty or choice) and why it matters. If there is genuinely nothing structurally right to say, say that plainly. Do not generate a strength to fill the field.",
-"summary": "Two to three sentences identifying the one or two areas where the reader at reduced capacity is being asked to carry more than they should. Open with the substantive observation, not with reassurance. Speak directly to the writer using 'you'. Do not pass an overall verdict. Avoid 'fails', 'works', 'effective', 'ineffective', 'broken', 'good', 'bad'. Sound warm, specific, invested in the writer's craft.",
-"readingAge": <integer, estimated US grade-level reading age>,
-"readingAgeJudgement": "One sentence stating whether this reading age is appropriate for the detected content type and likely audience, and if not, why. GDS target for public-facing government guidance is age 9. Public-facing consumer financial services should aim for age 11 to 13. B2B regulatory communication aimed at directors or professionals can defensibly sit at 13 to 15. Specialist clinical or legal content may sit higher."
+    "worksStructurally": "One or two sentences naming the specific structural decisions the writer has got right. Address the writer using 'you'. This is structural diagnosis, not flattery — name what is load-bearing in the original (sequencing, audience targeting, retained operational specificity, named route to a human, explicit acknowledgement of difficulty or choice) and why it matters. If there is genuinely nothing structurally right to say, say that plainly. Do not generate a strength to fill the field.",
+    "summary": "Two to three sentences identifying the one or two areas where the reader at reduced capacity is being asked to carry more than they should. Open with the substantive observation, not with reassurance. Speak directly to the writer using 'you'. Do not pass an overall verdict. Avoid 'fails', 'works', 'effective', 'ineffective', 'broken', 'good', 'bad'. Sound warm, specific, invested in the writer's craft.",
+    "readingAge": <integer, estimated US grade-level reading age>,
+    "readingAgeJudgement": "One sentence stating whether this reading age is appropriate for the detected content type and likely audience, and if not, why. GDS target for public-facing government guidance is age 9. Public-facing consumer financial services should aim for age 11 to 13. B2B regulatory communication aimed at directors or professionals can defensibly sit at 13 to 15. Specialist clinical or legal content may sit higher."
   },
-"issues": [
+  "issues": [
     {
       "severity": "attention" | "consider" | "note",
       "category": "cognitive-load" | "emotional-register" | "trust-grounding" | "power-agency",
@@ -110,19 +202,22 @@ Return a single JSON object. No preamble. No markdown fences. No trailing commen
       "concern": "specific, practical concern raised under that framework. One sentence. Specific, not vague."
     }
   ],
-"rewrite": "An illustrative rewrite in the same format (letter, email, page etc.), offered as a starting point for the writer rather than a finished version. Show what the content could look like if it were addressed to a reader at reduced capacity, while preserving operational, legal and institutional meaning. UK English throughout. Retain specific details (numbers, dates, statute references, contact information). The writer will adapt this to their voice and constraints — your job is to demonstrate the move, not produce the final."
+  "rewrite": "An illustrative rewrite in the same format (letter, email, page etc.), offered as a starting point for the writer rather than a finished version. Show what the content could look like if it were addressed to a reader at reduced capacity, while preserving operational, legal and institutional meaning. UK English throughout. Retain specific details (numbers, dates, statute references, contact information). The writer will adapt this to their voice and constraints — your job is to demonstrate the move, not produce the final."
 }
 
 Return ONLY the JSON object.`;
+};
 
 const MAX_INPUT_LENGTH = 8500;
 const MODEL = 'claude-sonnet-4-6';
 
+// -----------------------------------------------------------------------------
+// Handler
+// -----------------------------------------------------------------------------
 export default async function handler(req, res) {
-  // CORS — only same-origin in production, but harmless to set
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -132,7 +227,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server is not configured. Contact the site administrator.' });
   }
 
-  const { content, jurisdiction } = req.body || {};
+  const { content, jurisdiction, context: rawContext } = req.body || {};
 
   if (typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ error: 'Content is required' });
@@ -143,6 +238,21 @@ export default async function handler(req, res) {
   if (!jurisdiction || !JURISDICTIONS[jurisdiction]) {
     return res.status(400).json({ error: 'Valid jurisdiction (UK, EU or US) is required' });
   }
+
+  // -----------------------------------------------------------------------------
+  // Look up the user's tier. Anonymous users are treated as free.
+  // -----------------------------------------------------------------------------
+  const { tier } = await getAuthenticatedTier(req);
+
+  // -----------------------------------------------------------------------------
+  // Validate and tier-gate the drafting context.
+  // Only Pro and Team get to use it; for Free users we silently drop it.
+  // -----------------------------------------------------------------------------
+  const sanitisedContext = validateContext(rawContext);
+  const effectiveContext =
+    sanitisedContext && (tier === 'professional' || tier === 'team')
+      ? sanitisedContext
+      : null;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -155,7 +265,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 4000,
-        system: buildSystemPrompt(jurisdiction),
+        system: buildSystemPrompt(jurisdiction, effectiveContext),
         messages: [{
           role: 'user',
           content: `Jurisdiction lens: ${JURISDICTIONS[jurisdiction].label}\n\nContent to review:\n\n---\n${content}\n---`,
@@ -170,7 +280,8 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    return res.status(200).json(data);
+    // Echo back the tier so the frontend can confirm Pro features were applied.
+    return res.status(200).json({ ...data, _tier: tier });
   } catch (err) {
     console.error('Review handler error:', err);
     return res.status(500).json({ error: 'Server error' });
