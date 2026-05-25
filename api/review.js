@@ -360,15 +360,26 @@ async function callAnthropicWithRetries({ systemPrompt, userContent }) {
         continue;
       }
 
-      const data = await response.json();
+const data = await response.json();
       const text = data?.content?.[0]?.text || '';
       const parsed = extractJsonFromText(text);
 
-      if (parsed && parsed.overall && Array.isArray(parsed.issues)) {
+      // Be lenient. A response with overall is good enough — missing or
+      // wrong-typed issues/jurisdictionFlags get defaulted to empty arrays.
+      // The frontend already handles those cases gracefully.
+      if (parsed && parsed.overall) {
+        if (!Array.isArray(parsed.issues)) parsed.issues = [];
+        if (!Array.isArray(parsed.jurisdictionFlags)) parsed.jurisdictionFlags = [];
         return parsed;
       }
 
-      console.error(`Malformed JSON from model. Returning failure to client.`);
+      // Genuine parse failure — log what the model actually returned so we
+      // can see whether it's truncated, wrapped in prose, or something else.
+      console.error(
+        `Malformed JSON from model. ` +
+        `Text length: ${text.length}. ` +
+        `First 500 chars: ${JSON.stringify(text.slice(0, 500))}`
+      );
       lastError = new Error('Model returned malformed JSON');
     } catch (err) {
       const duration = Date.now() - startedAt;
