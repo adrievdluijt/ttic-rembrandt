@@ -324,43 +324,64 @@ function extractJsonFromText(text) {
 // Call Anthropic — with retries on malformed JSON output
 // -----------------------------------------------------------------------------
 async function callAnthropicWithRetries({ systemPrompt, userContent }) {
+  const PER_ATTEMPT_TIMEOUT_MS = 90_000; // cap one Anthropic call at 90s
   let lastError = null;
 
   for (let attempt = 1; attempt <= JSON_PARSE_MAX_ATTEMPTS; attempt++) {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 3000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PER_ATTEMPT_TIMEOUT_MS);
+    const startedAt = Date.now();
 
-    if (!response.ok) {
-      const errBody = await response.text();
-      console.error(`Anthropic API error (attempt ${attempt}):`, response.status, errBody);
-      lastError = new Error(`Anthropic API returned ${response.status}`);
-      // 4xx errors won't be fixed by retry — bail.
-      if (response.status >= 400 && response.status < 500) break;
-      continue;
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 3000,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+        signal: controller.signal,
+      });
+
+      const duration = Date.now() - startedAt;
+      console.log(`Anthropic call completed in ${duration}ms (status ${response.status})`);
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        console.error(`Anthropic API error (attempt ${attempt}):`, response.status, errBody);
+        lastError = new Error(`Anthropic API returned ${response.status}`);
+        if (response.status >= 400 && response.status < 500) break;
+        continue;
+      }
+
+      const data = await response.json();
+      const text = data?.content?.[0]?.text || '';
+      const parsed = extractJsonFromText(text);
+
+      if (parsed && parsed.overall && Array.isArray(parsed.issues)) {
+        return parsed;
+      }
+
+      console.error(`Malformed JSON from model. Returning failure to client.`);
+      lastError = new Error('Model returned malformed JSON');
+    } catch (err) {
+      const duration = Date.now() - startedAt;
+      if (err.name === 'AbortError') {
+        console.error(`Anthropic call aborted after ${duration}ms (per-attempt timeout)`);
+        lastError = new Error('Anthropic API call timed out');
+      } else {
+        console.error(`Anthropic call failed after ${duration}ms:`, err.message);
+        lastError = err;
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await response.json();
-    const text = data?.content?.[0]?.text || '';
-    const parsed = extractJsonFromText(text);
-
-    if (parsed && parsed.overall && Array.isArray(parsed.issues)) {
-      return parsed;
-    }
-
-console.error(`Malformed JSON from model. Returning failure to client.`);
-    lastError = new Error('Model returned malformed JSON');
   }
 
   throw lastError || new Error('Failed to get a valid response from the model');
