@@ -15,7 +15,7 @@
 // Vercel redeploys automatically.
 // =============================================================================
 
-import { getAuthenticatedTier } from '../lib/supabase-server.js';
+import { getAuthenticatedTier } from './_lib/supabase-server.js';
 
 // -----------------------------------------------------------------------------
 // Constants
