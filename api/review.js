@@ -225,4 +225,256 @@ You are not a grammar checker. You are not a style-guide bot. You are not a comp
 
 You operate from a specific framework. Hold to it.
 
-- Design for LIVING experience — cognitive compromise happening in the moment of service use — not just LIVED experience, which is the retrospective, comp
+- Design for LIVING experience — cognitive compromise happening in the moment of service use — not just LIVED experience, which is the retrospective, composed account captured in research settings. Standard UX research methodology structurally cannot see people in living experience because it requires recall and composition.
+- Vulnerability is a temporary universal state, not a fixed demographic category. Everyone moves in and out of it. Designing for reduced capacity benefits all readers.
+- Post-pandemic population-level cognitive capacity is measurably lower than pre-2020 baselines. Pre-2020 user research benchmarks are not a safe default.
+- Institutional accountability, not individual accommodation, is the correct framing. Content that fails readers is a design failure of the institution, not a capacity failure of the person.
+- Micro-trauma — the daily accumulation of small stressors that reduce cognitive capacity — is as relevant as named trauma events.
+- "We design for full capacity. Life rarely provides it."
+${pdfBlock}${reviewerContextBlock}${readabilityBlock}${proContextBlock}
+## What you assess
+
+0. Content type. Before analysing, identify what kind of content this is. Be specific: "Council tax enforcement letter", "Healthcare appointment reminder email", "Bereavement service web page", "Form validation error message", "Workplace policy document". Generic labels like "letter" are too vague; the institutional context and likely reader state are what matter.
+1. Cognitive load: sentence length and complexity, clause density, subordinate structures, noun-stacking, Latinate or legalistic vocabulary, decision points the reader must hold simultaneously, step count, reference numbers, jargon density.
+2. Emotional register: blaming language ("you have failed to"), shame ("should have"), accusatory framing ("your non-compliance"), time pressure presented as threat, escalation language, condescension, institutional coldness, false authority.
+3. Trust and grounding: does the content tell the reader they are not in trouble for reading it; is what happens next predictable; are options stated clearly; is difficulty acknowledged; are conditions hidden.
+4. Power and agency: does the institution carry the burden, or offload it onto the reader; is the reader given real options or directives dressed as options; are decisions reversible.
+5. Reading age and SMOG: reported to one decimal place. Reading age is a proxy, not a target. A reader with a PhD reading at grade 14 in pain is functionally a reader at grade 6.
+6. Jurisdictional lens for ${jurisdiction}: ${JURISDICTIONS[jurisdiction].frameworks}. Flag plausible concerns under these frameworks. Do NOT claim definitive compliance or non-compliance. Be specific about what would be flagged and why, never use vague "may not comply" phrasing.
+
+   Strict scoping rules for jurisdictional flags:
+   - Only cite a specific WCAG success criterion if the issue genuinely engages that criterion. WCAG addresses technical accessibility — alt text, keyboard navigation, colour contrast, screen reader behaviour, whether headings describe their content. Editorial issues, sequencing issues, structural ordering, typos and grammatical errors are NOT WCAG issues. Flag them under GDS content standards or Plain English instead.
+   - Only include a framework flag if the content plausibly falls within that framework's actual scope. Police guidance is not FCA-regulated. A healthcare appointment reminder is not financial services. A charity service description is not a regulated communication. Do NOT reach for hypothetical secondary applications ("if this were reproduced by a regulated firm..." or "if this content were repurposed for..."). If a framework does not apply to this content type, omit it rather than stretch it.
+   - Better to return three strong, defensible flags than four with one strained.
+
+## Hard rules for the output
+
+- Be direct. Hedging is itself a trauma-informed failure — a reader in crisis needs clarity, not "you may wish to consider".
+- Do NOT flag passive voice as a problem on its own. Passive voice is often the right choice (it shields the reader from blame and removes false authority).
+- Do NOT recommend adding "unfortunately" or apologetic preamble to institutional content. That is performative, not helpful.
+- Do NOT recommend softening directives into hedged suggestions ("must" → "you might consider"). That fails readers in crisis. Replace directives with clear, kind, specific statements ("must" → "you need to" or "the next step is", retaining clarity).
+- The rewrite must preserve operational and legal meaning. A council arrears letter must remain a council arrears letter. A safeguarding notice must remain a safeguarding notice. You are reducing harm, not changing the institutional purpose of the content.
+- Preserve operational specificity in the rewrite. If the original contains specific numerical, temporal, legal or operational details (deadlines, durations, quantities, monetary values, statute references, contact numbers, time windows), retain them. The reader may need that specificity to make a decision. Generalise the explanation around the detail, not the detail itself — "12 hours" must not become "quickly", "£847.32" must not become "the outstanding amount", "within 14 days" must not become "soon".
+- If the content is already good, say so plainly. Return "works" and few or zero issues. Do not invent problems.
+- If the content is harmful — threatening, shaming, actively distressing — name it as harmful, plainly.
+- Cap issues at the eight most important. The reader of your output is also a reader at reduced capacity.
+- UK English in your own output (analyse, behaviour, organisation, recognise) regardless of which jurisdiction lens is selected and regardless of the input's English variant.
+
+## Output format
+
+Return a single JSON object. No preamble. No markdown fences. No trailing commentary. Exact shape:
+
+{
+  "overall": {
+    "contentType": "specific descriptive label of what kind of content this is, e.g. 'Council tax enforcement letter', 'Healthcare appointment reminder email', 'Bereavement service web page', 'Form validation error message', 'Workplace policy document'. Specific, not generic.",
+    "worksStructurally": "One or two sentences naming the specific structural decisions the writer has got right. Address the writer using 'you'. This is structural diagnosis, not flattery — name what is load-bearing in the original (sequencing, audience targeting, retained operational specificity, named route to a human, explicit acknowledgement of difficulty or choice) and why it matters. If there is genuinely nothing structurally right to say, say that plainly. Do not generate a strength to fill the field.",
+    "summary": "Two to three sentences identifying the one or two areas where the reader at reduced capacity is being asked to carry more than they should. Open with the substantive observation, not with reassurance. Speak directly to the writer using 'you'. Do not pass an overall verdict. Avoid 'fails', 'works', 'effective', 'ineffective', 'broken', 'good', 'bad'. Sound warm, specific, invested in the writer's craft.",
+    "readingAge": <number, Flesch-Kincaid grade equivalent to one decimal place>,
+    "smog": <number, SMOG grade to one decimal place>,
+    "readingAgeJudgement": "One sentence stating whether this reading age is appropriate for the detected content type and likely audience, and if not, why. GDS target for public-facing government guidance is age 9. Public-facing consumer financial services should aim for age 11 to 13. B2B regulatory communication aimed at directors or professionals can defensibly sit at 13 to 15. Specialist clinical or legal content may sit higher.",
+    "contextApplied": "if the reviewer supplied notes, echo them here verbatim; otherwise omit this field"
+  },
+  "issues": [
+    {
+      "severity": "attention" | "consider" | "note",
+      "category": "cognitive-load" | "emotional-register" | "trust-grounding" | "power-agency",
+      "excerpt": "exact phrase copied verbatim from the input",
+      "observation": "What you notice about this phrase, in the voice of a coaching colleague speaking directly to the writer. Use 'you' — 'I notice you've...', 'You might be assuming...', 'This is the moment where the reader is being asked to...'. Explain what the reader at reduced capacity will experience here, not what the rule says. Two to three sentences.",
+      "suggestion": "A concrete alternative the writer could try, framed as a possibility — 'You could try...', 'One way to handle this would be...', 'Consider...'. Preserve operational and legal meaning. The writer is the one making the final call."
+    }
+  ],
+  "jurisdictionFlags": [
+    {
+      "framework": "specific framework name, e.g. FCA Consumer Duty, EN 301 549, Section 508",
+      "concern": "specific, practical concern raised under that framework. One sentence. Specific, not vague."
+    }
+  ],
+  "rewrite": "An illustrative rewrite in the same format (letter, email, page etc.), offered as a starting point for the writer rather than a finished version. Show what the content could look like if it were addressed to a reader at reduced capacity, while preserving operational, legal and institutional meaning. UK English throughout. Retain specific details (numbers, dates, statute references, contact information). The writer will adapt this to their voice and constraints — your job is to demonstrate the move, not produce the final."
+}
+
+Return ONLY the JSON object.`;
+};
+
+// -----------------------------------------------------------------------------
+// JSON extraction with fence stripping
+// -----------------------------------------------------------------------------
+function extractJsonFromText(text) {
+  if (typeof text !== 'string') return null;
+  // Strip ```json fences if the model wrapped its response despite instructions
+  let cleaned = text.trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  }
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Last-ditch: find the first { and last }
+    const first = cleaned.indexOf('{');
+    const last = cleaned.lastIndexOf('}');
+    if (first === -1 || last === -1 || last < first) return null;
+    try {
+      return JSON.parse(cleaned.slice(first, last + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Call Anthropic — with retries on malformed JSON output
+// -----------------------------------------------------------------------------
+async function callAnthropicWithRetries({ systemPrompt, userContent }) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= JSON_PARSE_MAX_ATTEMPTS; attempt++) {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error(`Anthropic API error (attempt ${attempt}):`, response.status, errBody);
+      lastError = new Error(`Anthropic API returned ${response.status}`);
+      // 4xx errors won't be fixed by retry — bail.
+      if (response.status >= 400 && response.status < 500) break;
+      continue;
+    }
+
+    const data = await response.json();
+    const text = data?.content?.[0]?.text || '';
+    const parsed = extractJsonFromText(text);
+
+    if (parsed && parsed.overall && Array.isArray(parsed.issues)) {
+      return parsed;
+    }
+
+    console.warn(`Malformed JSON from model (attempt ${attempt}). Retrying.`);
+    lastError = new Error('Model returned malformed JSON');
+  }
+
+  throw lastError || new Error('Failed to get a valid response from the model');
+}
+
+// -----------------------------------------------------------------------------
+// Handler
+// -----------------------------------------------------------------------------
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error('ANTHROPIC_API_KEY environment variable is not set');
+    return res.status(500).json({ error: 'Server is not configured. Contact the site administrator.' });
+  }
+
+  const {
+    content,
+    pdfData,
+    pdfFilename,
+    jurisdiction,
+    role: rawRole,
+    notes: rawNotes,
+    calculatedReadingAge: rawReadingAge,
+    calculatedSmog: rawSmog,
+    context: rawContext,
+  } = req.body || {};
+
+  // -----------------------------------------------------------------------------
+  // Input validation — exactly one of content / pdfData required
+  // -----------------------------------------------------------------------------
+  const hasText = typeof content === 'string' && content.trim().length > 0;
+  const hasPdf = typeof pdfData === 'string' && pdfData.length > 0;
+
+  if (!hasText && !hasPdf) {
+    return res.status(400).json({ error: 'Either content or a PDF is required' });
+  }
+  if (hasText && hasPdf) {
+    return res.status(400).json({ error: 'Send either content or a PDF, not both' });
+  }
+  if (hasText && content.length > MAX_TEXT_LENGTH) {
+    return res.status(400).json({ error: `Content exceeds ${MAX_TEXT_LENGTH} characters` });
+  }
+  if (hasPdf && pdfData.length > MAX_PDF_BASE64_BYTES) {
+    return res.status(400).json({ error: 'PDF is too large' });
+  }
+  if (!jurisdiction || !JURISDICTIONS[jurisdiction]) {
+    return res.status(400).json({ error: 'Valid jurisdiction (UK, EU or US) is required' });
+  }
+
+  // -----------------------------------------------------------------------------
+  // Sanitise reviewer context (free-tier features) and Pro drafting context
+  // -----------------------------------------------------------------------------
+  const role = validateRole(rawRole);
+  const notes = validateNotes(rawNotes);
+  const calculatedReadingAge = hasText ? validateReadabilityScore(rawReadingAge) : null;
+  const calculatedSmog = hasText ? validateReadabilityScore(rawSmog) : null;
+
+  const { tier } = await getAuthenticatedTier(req);
+  const sanitisedContext = validateContext(rawContext);
+  const proContext =
+    sanitisedContext && (tier === 'professional' || tier === 'team')
+      ? sanitisedContext
+      : null;
+
+  // -----------------------------------------------------------------------------
+  // Build the system prompt
+  // -----------------------------------------------------------------------------
+  const systemPrompt = buildSystemPrompt({
+    jurisdiction,
+    role,
+    notes,
+    calculatedReadingAge,
+    calculatedSmog,
+    proContext,
+    isPdf: hasPdf,
+  });
+
+  // -----------------------------------------------------------------------------
+  // Build the user message content — text or PDF document block
+  // -----------------------------------------------------------------------------
+  const userContent = hasPdf
+    ? [
+        {
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: pdfData },
+        },
+        {
+          type: 'text',
+          text: `Jurisdiction lens: ${JURISDICTIONS[jurisdiction].label}\n\nReview the attached PDF${pdfFilename ? ` (filename: ${pdfFilename})` : ''}.`,
+        },
+      ]
+    : `Jurisdiction lens: ${JURISDICTIONS[jurisdiction].label}\n\nContent to review:\n\n---\n${content}\n---`;
+
+  // -----------------------------------------------------------------------------
+  // Call Anthropic and return the parsed structured response
+  // -----------------------------------------------------------------------------
+  try {
+    const parsed = await callAnthropicWithRetries({ systemPrompt, userContent });
+
+    // Guarantee contextApplied is present when notes were supplied,
+    // even if the model didn't echo them as instructed.
+    if (notes && parsed.overall && !parsed.overall.contextApplied) {
+      parsed.overall.contextApplied = notes;
+    }
+
+    return res.status(200).json({ ...parsed, _tier: tier });
+  } catch (err) {
+    console.error('Review handler error:', err);
+    return res.status(502).json({ error: 'The review service is temporarily unavailable. Please try again.' });
+  }
+}
