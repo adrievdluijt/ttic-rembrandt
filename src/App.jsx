@@ -557,6 +557,12 @@ export default function App() {
   const [urgency, setUrgency] = useState('routine');
   const [proLockMessage, setProLockMessage] = useState(false);
 
+  // Ref to the results section, used to scroll the review into view once it
+  // arrives. Without this, users who have scrolled down to set up Pro context
+  // fields find the results appearing off-screen (at the top of the
+  // right-hand column, above the current scroll position).
+  const resultsRef = useRef(null);
+
   const textareaRef = useRef(null);
   const resultsHeadingRef = useRef(null);
   const pdfInputRef = useRef(null);
@@ -867,6 +873,19 @@ const response = await authFetch('/api/review', {
       }
 
       setResults(parsed);
+      // Scroll the results into view once the review arrives. Without this,
+      // users who have scrolled down through the input/context fields don't
+      // see the result appear because it lands at the top of the right
+      // column, above their current scroll position. We use 'smooth'
+      // behaviour but respect prefers-reduced-motion.
+      setTimeout(() => {
+        if (!resultsRef.current) return;
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        resultsRef.current.scrollIntoView({
+          behavior: reduceMotion ? 'auto' : 'smooth',
+          block: 'start',
+        });
+      }, 50);
       const issueCount = parsed.issues?.length || 0;
       const flagCount = parsed.jurisdictionFlags?.length || 0;
       setAnnouncement(
@@ -1387,17 +1406,23 @@ const response = await authFetch('/api/feedback', {
        Sits inside the existing rb-context-details element, after the role
        chips and notes textarea. Visible to everyone; locked controls for
        free users. The lock is visual (greyed appearance) not functional —
-       clicks still register, so we can surface the inline upsell beneath. */
+       clicks still register, so we can surface the inline upsell beneath.
+
+       Layout: target age (compact select) and urgency (three chips) share
+       a single horizontal row to keep the section vertical height down.
+       Audience state sits below them on its own row because the chip list
+       genuinely needs the width. On viewports below 600px the row collapses
+       to a stack. */
     .rb-pro-section {
-      margin-top: 18px;
-      padding-top: 14px;
+      margin-top: 14px;
+      padding-top: 12px;
       border-top: 1px dashed var(--rule);
     }
     .rb-pro-header {
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 4px;
+      margin-bottom: 10px;
     }
     .rb-pro-heading {
       font-family: 'Rethink Sans', sans-serif;
@@ -1421,23 +1446,30 @@ const response = await authFetch('/api/feedback', {
       background: var(--ink);
       color: var(--surface);
     }
-    .rb-pro-intro {
-      font-size: 12px;
-      color: var(--muted);
-      margin: 0 0 14px;
-      line-height: 1.5;
-      font-style: italic;
+    .rb-pro-row {
+      display: flex;
+      gap: 20px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .rb-pro-row > .rb-pro-field {
+      margin-bottom: 0;
+      flex: 1 1 auto;
+    }
+    .rb-pro-row > .rb-pro-field-narrow {
+      flex: 0 0 auto;
     }
     .rb-pro-field {
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .rb-pro-field:last-child {
       margin-bottom: 0;
     }
     .rb-pro-select {
-      width: 100%;
-      max-width: 280px;
-      padding: 8px 12px;
+      width: auto;
+      min-width: 180px;
+      padding: 7px 12px;
       border: 1px solid var(--rule);
       border-radius: 8px;
       background: var(--surface);
@@ -1449,6 +1481,10 @@ const response = await authFetch('/api/feedback', {
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
     .rb-pro-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
+    @media (max-width: 600px) {
+      .rb-pro-row { gap: 12px; }
+      .rb-pro-row > .rb-pro-field { flex-basis: 100%; }
+    }
 
     /* Locked appearance for free-tier users. We deliberately don't use the
        disabled attribute — clicks still need to fire so the upsell appears.
@@ -1466,18 +1502,18 @@ const response = await authFetch('/api/feedback', {
     }
 
     .rb-pro-upsell {
-      margin-top: 12px;
-      padding: 12px 14px;
+      margin-top: 10px;
+      padding: 10px 12px;
       background: var(--panel);
       border-left: 3px solid var(--coral, #E5634A);
       border-radius: 6px;
       font-size: 13px;
-      line-height: 1.55;
+      line-height: 1.5;
       color: var(--ink);
     }
     .rb-pro-upsell-link {
       display: inline-block;
-      margin-top: 4px;
+      margin-top: 2px;
       color: var(--ink);
       font-weight: 600;
       text-decoration: underline;
@@ -2235,12 +2271,16 @@ const response = await authFetch('/api/feedback', {
 
             {/* ----------------------------------------------------------------
                 Professional-tier drafting context
-                
+
                 Visible to all users; locked for free. The controls themselves
                 handle the lock — clicking any of them when on the free tier
                 surfaces the inline upsell beneath. We don't use disabled
                 attributes because clicks still need to register so we can
                 show that message.
+
+                Layout: target age and urgency share a single row to keep
+                vertical height down. Audience state sits below them on its
+                own row because the chip list wraps to 2-3 rows on its own.
                 ---------------------------------------------------------------- */}
             <div className="rb-pro-section">
               <div className="rb-pro-header">
@@ -2249,26 +2289,44 @@ const response = await authFetch('/api/feedback', {
                   {isPro ? 'Pro' : 'Pro only'}
                 </span>
               </div>
-              <p className="rb-pro-intro">
-                Calibrate the review to a specific audience and stakes — not just the content type.
-              </p>
 
-              <div className="rb-pro-field">
-                <label htmlFor="target-age-select" className="rb-field-label">
-                  Target reading age
-                </label>
-                <select
-                  id="target-age-select"
-                  value={targetReadingAge ?? ''}
-                  onChange={(e) => selectTargetAge(e.target.value)}
-                  className={`rb-pro-select${!isPro ? ' rb-pro-locked' : ''}`}
-                  aria-describedby={!isPro ? 'pro-lock-help' : undefined}
-                >
-                  <option value="">Auto-detect from content type</option>
-                  {TARGET_AGE_OPTIONS.map((age) => (
-                    <option key={age} value={age}>Age {age}</option>
-                  ))}
-                </select>
+              <div className="rb-pro-row">
+                <div className="rb-pro-field rb-pro-field-narrow">
+                  <label htmlFor="target-age-select" className="rb-field-label">
+                    Target reading age
+                  </label>
+                  <select
+                    id="target-age-select"
+                    value={targetReadingAge ?? ''}
+                    onChange={(e) => selectTargetAge(e.target.value)}
+                    className={`rb-pro-select${!isPro ? ' rb-pro-locked' : ''}`}
+                    aria-describedby={!isPro ? 'pro-lock-help' : undefined}
+                  >
+                    <option value="">Auto-detect</option>
+                    {TARGET_AGE_OPTIONS.map((age) => (
+                      <option key={age} value={age}>Age {age}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="rb-pro-field">
+                  <span className="rb-field-label" id="urgency-label">
+                    Content urgency
+                  </span>
+                  <div className="rb-chips" role="group" aria-labelledby="urgency-label">
+                    {URGENCY_LEVELS.map((level) => (
+                      <button
+                        key={level.value}
+                        type="button"
+                        onClick={() => selectUrgency(level.value)}
+                        aria-pressed={urgency === level.value}
+                        className={`rb-chip${!isPro ? ' rb-pro-locked' : ''}`}
+                      >
+                        {level.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="rb-pro-field">
@@ -2290,25 +2348,6 @@ const response = await authFetch('/api/feedback', {
                       </button>
                     );
                   })}
-                </div>
-              </div>
-
-              <div className="rb-pro-field">
-                <span className="rb-field-label" id="urgency-label">
-                  Content urgency
-                </span>
-                <div className="rb-chips" role="group" aria-labelledby="urgency-label">
-                  {URGENCY_LEVELS.map((level) => (
-                    <button
-                      key={level.value}
-                      type="button"
-                      onClick={() => selectUrgency(level.value)}
-                      aria-pressed={urgency === level.value}
-                      className={`rb-chip${!isPro ? ' rb-pro-locked' : ''}`}
-                    >
-                      {level.label}
-                    </button>
-                  ))}
                 </div>
               </div>
 
@@ -2479,7 +2518,7 @@ const response = await authFetch('/api/feedback', {
           )}
 
           {results && !loading && (
-            <div className="rb-results rb-fade">
+            <div ref={resultsRef} className="rb-results rb-fade">
               <div className="rb-results-actions">
                 <button onClick={copyFullReview} className="rb-results-copy">
                   {reviewCopied ? 'Copied' : 'Copy full review'}
