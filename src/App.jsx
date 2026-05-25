@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { authFetch } from './lib/supabase';
+import { authFetch, supabase } from './lib/supabase';
 
 // =============================================================================
 // VERSION & CONFIG
@@ -77,6 +77,42 @@ const ROLE_CHIPS = [
   "I received this",
   "I'm reviewing third-party work",
 ];
+
+// =============================================================================
+// PROFESSIONAL-TIER DRAFTING CONTEXT
+//
+// These three controls — target reading age, audience state, content urgency —
+// are visible to all users but only functional for Professional and Team tiers.
+// Free users see them locked with a Pro badge; clicking a locked control
+// reveals a small in-place upsell pointing to the pricing page.
+//
+// Values map to the validation lists in /api/review.js — keep these in sync
+// if either is edited. The backend silently drops Pro context fields for
+// non-Pro users, so the front-end gate is a UX courtesy, not a security
+// boundary.
+// =============================================================================
+const AUDIENCE_STATES = [
+  { value: 'in-distress',            label: 'In distress' },
+  { value: 'in-grief',               label: 'In grief' },
+  { value: 'in-pain',                label: 'In pain' },
+  { value: 'in-financial-difficulty', label: 'In financial difficulty' },
+  { value: 'cognitive-load',         label: 'Under cognitive load' },
+  { value: 'not-first-language',     label: 'Not first language' },
+  { value: 'accessibility-need',     label: 'Accessibility need' },
+  { value: 'time-pressured',         label: 'Time-pressured' },
+];
+
+const URGENCY_LEVELS = [
+  { value: 'routine',        label: 'Routine' },
+  { value: 'time-sensitive', label: 'Time-sensitive' },
+  { value: 'crisis',         label: 'Crisis' },
+];
+
+// Range for the target-reading-age dropdown. Matches the validation
+// bounds in /api/review.js (integer between 5 and 20). Step is 1.
+const TARGET_AGE_OPTIONS = Array.from({ length: 14 }, (_, i) => i + 5);
+
+const PRO_PRICING_URL = 'https://traumainformedcontent.com/rembrandt-editor-plus/';
 
 const CHAR_LIMIT = 8000;
 const PDF_MAX_BYTES = 2_500_000; // ~2.5 MB raw, ~3.3 MB base64 — sits under Vercel body limit
@@ -499,6 +535,28 @@ export default function App() {
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackError, setFeedbackError] = useState(null);
 
+  // ---------------------------------------------------------------------------
+  // Professional-tier state
+  //
+  // tier: 'free' | 'professional' | 'team'. Fetched on mount from the
+  // signed-in user's profile row. Defaults to 'free' for anonymous users
+  // or while loading. Drives whether the drafting-context controls below
+  // are active or locked.
+  //
+  // targetReadingAge / audienceStates / urgency: the three drafting-context
+  // fields. Always tracked in state so the UI is consistent whether or not
+  // the user is currently Pro; only sent to the API when tier permits.
+  //
+  // proLockMessage: when a free user clicks a locked control, this flips to
+  // true and a small inline message appears pointing to the pricing page.
+  // Auto-dismisses when the details element is closed or the page reloads.
+  // ---------------------------------------------------------------------------
+  const [tier, setTier] = useState('free');
+  const [targetReadingAge, setTargetReadingAge] = useState(null);
+  const [audienceStates, setAudienceStates] = useState([]);
+  const [urgency, setUrgency] = useState('routine');
+  const [proLockMessage, setProLockMessage] = useState(false);
+
   const textareaRef = useRef(null);
   const resultsHeadingRef = useRef(null);
   const pdfInputRef = useRef(null);
@@ -532,6 +590,48 @@ export default function App() {
         setAboutDismissed(true);
       }
     } catch (e) { /* ignore */ }
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Load the signed-in user's tier on mount, and keep it fresh if the auth
+  // state changes (sign-out in another tab, magic-link sign-in completing,
+  // etc.). Anonymous users and lookup failures both resolve to 'free'.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTier(session) {
+      if (!session?.user) {
+        if (!cancelled) setTier('free');
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('tier')
+          .eq('id', session.user.id)
+          .single();
+        if (cancelled) return;
+        if (error || !data) {
+          setTier('free');
+          return;
+        }
+        setTier(data.tier || 'free');
+      } catch (e) {
+        if (!cancelled) setTier('free');
+      }
+    }
+
+    supabase.auth.getSession().then(({ data }) => loadTier(data.session));
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => loadTier(newSession)
+    );
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // ESC key closes feedback modal
@@ -696,9 +796,37 @@ export default function App() {
     const timeoutId = setTimeout(() => controller.abort(), REVIEW_FETCH_TIMEOUT_MS);
 
     try {
+      // Build the Professional-tier drafting context, but only when the
+      // user is actually Pro or Team AND has set at least one field. The
+      // backend silently drops this for free users; we omit it client-side
+      // anyway to keep the request body lean.
+      const proContext = isPro
+        ? {
+            ...(targetReadingAge != null && { targetReadingAge }),
+            ...(audienceStates.length > 0 && { audienceStates }),
+            ...(urgency !== 'routine' && { urgency }),
+          }
+        : null;
+      const includeContext = proContext && Object.keys(proContext).length > 0;
+
       const body = pdfFile
-        ? { pdfData: pdfFile.data, pdfFilename: pdfFile.name, jurisdiction, role, notes: notesSnapshot }
-        : { content, jurisdiction, role, notes: notesSnapshot, calculatedReadingAge, calculatedSmog };
+        ? {
+            pdfData: pdfFile.data,
+            pdfFilename: pdfFile.name,
+            jurisdiction,
+            role,
+            notes: notesSnapshot,
+            ...(includeContext && { context: proContext }),
+          }
+        : {
+            content,
+            jurisdiction,
+            role,
+            notes: notesSnapshot,
+            calculatedReadingAge,
+            calculatedSmog,
+            ...(includeContext && { context: proContext }),
+          };
 
 const response = await authFetch('/api/review', {
         method: 'POST',
@@ -785,6 +913,56 @@ const response = await authFetch('/api/review', {
   const toggleChip = (chip) => {
     setRole((current) => (current === chip ? '' : chip));
   };
+
+  // ---------------------------------------------------------------------------
+  // Pro-tier field handlers
+  //
+  // Each handler checks tier before mutating state. Free users get the
+  // proLockMessage flag flipped on instead, which surfaces the inline upsell
+  // beneath the Pro section. We don't disable the controls outright because
+  // tactile feedback (a click that does something visible) is better UX than
+  // a click that's silently ignored.
+  // ---------------------------------------------------------------------------
+  const isPro = tier === 'professional' || tier === 'team';
+
+  const handleProInteraction = (mutator) => {
+    if (!isPro) {
+      setProLockMessage(true);
+      return;
+    }
+    setProLockMessage(false);
+    mutator();
+  };
+
+  const toggleAudienceState = (state) => {
+    handleProInteraction(() => {
+      setAudienceStates((current) =>
+        current.includes(state)
+          ? current.filter((s) => s !== state)
+          : [...current, state]
+      );
+    });
+  };
+
+  const selectUrgency = (level) => {
+    handleProInteraction(() => setUrgency(level));
+  };
+
+  const selectTargetAge = (value) => {
+    handleProInteraction(() => {
+      const parsed = value === '' ? null : parseInt(value, 10);
+      setTargetReadingAge(Number.isInteger(parsed) ? parsed : null);
+    });
+  };
+
+  // True when any context field — free or Pro — has a non-default value,
+  // so the summary text can correctly reflect "Context (set)" state.
+  const hasContextSet =
+    role ||
+    notes ||
+    targetReadingAge != null ||
+    audienceStates.length > 0 ||
+    urgency !== 'routine';
 
   const copyRewrite = async () => {
     if (!results?.rewrite) return;
@@ -1204,6 +1382,113 @@ const response = await authFetch('/api/feedback', {
     .rb-chip:hover:not([aria-pressed="true"]) { border-color: var(--primary); background: rgba(10, 61, 110, 0.04); }
     .rb-chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
     .rb-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+    /* ---- Professional-tier drafting context section ----
+       Sits inside the existing rb-context-details element, after the role
+       chips and notes textarea. Visible to everyone; locked controls for
+       free users. The lock is visual (greyed appearance) not functional —
+       clicks still register, so we can surface the inline upsell beneath. */
+    .rb-pro-section {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--rule);
+    }
+    .rb-pro-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .rb-pro-heading {
+      font-family: 'Rethink Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.005em;
+    }
+    .rb-pro-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .rb-pro-badge-active {
+      background: var(--ink);
+      color: var(--surface);
+    }
+    .rb-pro-intro {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 14px;
+      line-height: 1.5;
+      font-style: italic;
+    }
+    .rb-pro-field {
+      margin-bottom: 12px;
+    }
+    .rb-pro-field:last-child {
+      margin-bottom: 0;
+    }
+    .rb-pro-select {
+      width: 100%;
+      max-width: 280px;
+      padding: 8px 12px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      background: var(--surface);
+      font-size: 13px;
+      color: var(--ink);
+      font-family: inherit;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .rb-pro-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(10, 61, 110, 0.15); }
+
+    /* Locked appearance for free-tier users. We deliberately don't use the
+       disabled attribute — clicks still need to fire so the upsell appears.
+       The greyed look is signal enough that something isn't normal. */
+    .rb-pro-locked {
+      opacity: 0.55;
+      cursor: help;
+    }
+    .rb-pro-locked:hover {
+      opacity: 0.7;
+    }
+    .rb-pro-locked:focus-visible {
+      outline: 2px dashed var(--muted);
+      outline-offset: 2px;
+    }
+
+    .rb-pro-upsell {
+      margin-top: 12px;
+      padding: 12px 14px;
+      background: var(--panel);
+      border-left: 3px solid var(--coral, #E5634A);
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+    .rb-pro-upsell-link {
+      display: inline-block;
+      margin-top: 4px;
+      color: var(--ink);
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .rb-pro-upsell-link:hover { color: var(--inkDeep, #062847); }
+    .rb-pro-upsell-link:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
 
     /* ---- Textarea ---- */
     .rb-textarea {
@@ -1911,7 +2196,7 @@ const response = await authFetch('/api/feedback', {
 
           <details className="rb-context-details">
             <summary>
-              {(role || notes) ? 'Context (set) — edit' : 'Add context (optional)'}
+              {hasContextSet ? 'Context (set) — edit' : 'Add context (optional)'}
             </summary>
 
             <div className="rb-role">
@@ -1946,6 +2231,101 @@ const response = await authFetch('/api/feedback', {
               <div id="notes-help" className="rb-sr-only">
                 Anything you tell Rembrandt Editor here will be factored into the review and shown back to you alongside the result so you can verify it was understood.
               </div>
+            </div>
+
+            {/* ----------------------------------------------------------------
+                Professional-tier drafting context
+                
+                Visible to all users; locked for free. The controls themselves
+                handle the lock — clicking any of them when on the free tier
+                surfaces the inline upsell beneath. We don't use disabled
+                attributes because clicks still need to register so we can
+                show that message.
+                ---------------------------------------------------------------- */}
+            <div className="rb-pro-section">
+              <div className="rb-pro-header">
+                <span className="rb-pro-heading">Drafting context</span>
+                <span className={`rb-pro-badge${isPro ? ' rb-pro-badge-active' : ''}`}>
+                  {isPro ? 'Pro' : 'Pro only'}
+                </span>
+              </div>
+              <p className="rb-pro-intro">
+                Calibrate the review to a specific audience and stakes — not just the content type.
+              </p>
+
+              <div className="rb-pro-field">
+                <label htmlFor="target-age-select" className="rb-field-label">
+                  Target reading age
+                </label>
+                <select
+                  id="target-age-select"
+                  value={targetReadingAge ?? ''}
+                  onChange={(e) => selectTargetAge(e.target.value)}
+                  className={`rb-pro-select${!isPro ? ' rb-pro-locked' : ''}`}
+                  aria-describedby={!isPro ? 'pro-lock-help' : undefined}
+                >
+                  <option value="">Auto-detect from content type</option>
+                  {TARGET_AGE_OPTIONS.map((age) => (
+                    <option key={age} value={age}>Age {age}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rb-pro-field">
+                <span className="rb-field-label" id="audience-state-label">
+                  Audience state (select any that apply)
+                </span>
+                <div className="rb-chips" role="group" aria-labelledby="audience-state-label">
+                  {AUDIENCE_STATES.map((state) => {
+                    const isSelected = audienceStates.includes(state.value);
+                    return (
+                      <button
+                        key={state.value}
+                        type="button"
+                        onClick={() => toggleAudienceState(state.value)}
+                        aria-pressed={isSelected}
+                        className={`rb-chip${!isPro ? ' rb-pro-locked' : ''}`}
+                      >
+                        {state.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rb-pro-field">
+                <span className="rb-field-label" id="urgency-label">
+                  Content urgency
+                </span>
+                <div className="rb-chips" role="group" aria-labelledby="urgency-label">
+                  {URGENCY_LEVELS.map((level) => (
+                    <button
+                      key={level.value}
+                      type="button"
+                      onClick={() => selectUrgency(level.value)}
+                      aria-pressed={urgency === level.value}
+                      className={`rb-chip${!isPro ? ' rb-pro-locked' : ''}`}
+                    >
+                      {level.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {!isPro && proLockMessage && (
+                <div className="rb-pro-upsell" id="pro-lock-help" role="status">
+                  Drafting context is part of Rembrandt Editor Professional. It shapes the review around your actual audience — distress, grief, financial difficulty — rather than letting content-type detection guess.
+                  {' '}
+                  <a
+                    href={PRO_PRICING_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rb-pro-upsell-link"
+                  >
+                    Find out about Professional →
+                  </a>
+                </div>
+              )}
             </div>
           </details>
 
