@@ -298,26 +298,33 @@ Return ONLY the JSON object.`;
 // -----------------------------------------------------------------------------
 // JSON extraction with fence stripping
 // -----------------------------------------------------------------------------
+import { jsonrepair } from 'jsonrepair';
+
 function extractJsonFromText(text) {
   if (typeof text !== 'string') return null;
-  // Strip ```json fences if the model wrapped its response despite instructions
   let cleaned = text.trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
   }
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    // Last-ditch: find the first { and last }
-    const first = cleaned.indexOf('{');
-    const last = cleaned.lastIndexOf('}');
-    if (first === -1 || last === -1 || last < first) return null;
-    try {
-      return JSON.parse(cleaned.slice(first, last + 1));
-    } catch {
-      return null;
-    }
+
+  // Attempt 1: direct parse
+  try { return JSON.parse(cleaned); } catch {}
+
+  // Attempt 2: trim to first { and last }
+  const first = cleaned.indexOf('{');
+  const last = cleaned.lastIndexOf('}');
+  if (first !== -1 && last !== -1 && last > first) {
+    const sliced = cleaned.slice(first, last + 1);
+    try { return JSON.parse(sliced); } catch {}
+
+    // Attempt 3: jsonrepair on the sliced portion
+    try { return JSON.parse(jsonrepair(sliced)); } catch {}
   }
+
+  // Attempt 4: jsonrepair on the full string (last resort)
+  try { return JSON.parse(jsonrepair(cleaned)); } catch {}
+
+  return null;
 }
 
 // -----------------------------------------------------------------------------
