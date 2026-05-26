@@ -72,11 +72,6 @@ const MAX_PDF_BASE64_BYTES = 3_500_000; // ~2.6 MB raw — matches App.jsx PDF_M
 const MAX_NOTES_LENGTH = 2000;
 const MODEL = 'claude-sonnet-4-6';
 const JSON_PARSE_MAX_ATTEMPTS = 1;
-
-// Vercel function configuration — needs the higher maxDuration ceiling
-// because long reviews can take 60–120 seconds of model output.
-export const config = {
-  maxDuration: 180,
 };
 
 // -----------------------------------------------------------------------------
