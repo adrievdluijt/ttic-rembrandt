@@ -27,6 +27,19 @@ function getServiceClient() {
 }
 
 // -----------------------------------------------------------------------------
+// getSupabaseAdmin
+//
+// Direct access to the service-role Supabase client for server-to-server
+// writes (Stripe webhooks, scheduled jobs, anything that writes on behalf
+// of the system rather than the user). This client BYPASSES Row-Level
+// Security — never expose this to user input.
+//
+// Only call from inside /api/* serverless functions.
+// -----------------------------------------------------------------------------
+export function getSupabaseAdmin() {
+  return getServiceClient();
+}
+// -----------------------------------------------------------------------------
 // getAuthenticatedTier
 //
 // Reads the Authorization: Bearer <token> header from a Vercel API request,
