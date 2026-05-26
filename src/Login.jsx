@@ -31,9 +31,10 @@ export default function Login() {
     const { error: signInError } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        // Magic link lands back on the same origin. AuthGate handles the
-        // ?code=… exchange on mount.
-        emailRedirectTo: window.location.origin
+        // Magic link lands back on the same URL the user was trying to
+        // reach (not just the origin), so /upgrade?plan=pro-monthly survives
+        // the sign-in round trip. AuthGate handles the ?code=… exchange.
+        emailRedirectTo: window.location.href
       }
     })
 
