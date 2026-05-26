@@ -3,5 +3,11 @@
     "api/review.js": {
       "maxDuration": 180
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
