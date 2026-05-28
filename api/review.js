@@ -343,7 +343,7 @@ async function callAnthropicWithRetries({ systemPrompt, userContent }) {
         },
         body: JSON.stringify({
           model: MODEL,
-          max_tokens: 3000,
+          max_tokens: 5000,
           system: systemPrompt,
           messages: [{ role: 'user', content: userContent }],
         }),
