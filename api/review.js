@@ -70,7 +70,7 @@ const VALID_URGENCY = ['routine', 'time-sensitive', 'crisis'];
 const MAX_TEXT_LENGTH = 8500;
 const MAX_PDF_BASE64_BYTES = 3_500_000; // ~2.6 MB raw — matches App.jsx PDF_MAX_BYTES
 const MAX_NOTES_LENGTH = 2000;
-const MODEL = 'claude-opus-4-8';
+const MODEL = 'claude-sonnet-4-6';
 const JSON_PARSE_MAX_ATTEMPTS = 2;
 
 // -----------------------------------------------------------------------------
