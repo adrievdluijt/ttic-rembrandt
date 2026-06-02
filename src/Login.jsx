@@ -242,13 +242,13 @@ export default function Login() {
     <div className="rb-login-root">
       <style>{css}</style>
       <div className="rb-login-container">
-        <div className="rb-login-brand">
+        <header className="rb-login-brand">
           <img src="/logo.png" alt="" className="rb-login-logo" aria-hidden="true" />
           <div className="rb-login-wordmark">Rembrandt Editor</div>
           <div className="rb-login-tagline">Trauma-informed content review</div>
-        </div>
+        </header>
 
-        <div className="rb-login-card">
+        <main id="main" className="rb-login-card" aria-label="Sign in">
           {sent ? (
             <>
               <h1 className="rb-login-sent-heading">Check your email</h1>
@@ -294,17 +294,19 @@ export default function Login() {
               </form>
             </>
           )}
-        </div>
+        </main>
 
-        <p className="rb-login-quote">
-          "We design for full capacity. Life rarely provides it."
-        </p>
+        <footer>
+          <p className="rb-login-quote">
+            "We design for full capacity. Life rarely provides it."
+          </p>
 
-        <p className="rb-login-meta">
-          <a href="https://traumainformedcontent.com" target="_blank" rel="noopener noreferrer">
-            traumainformedcontent.com
-          </a>
-        </p>
+          <p className="rb-login-meta">
+            <a href="https://traumainformedcontent.com" target="_blank" rel="noopener noreferrer">
+              traumainformedcontent.com
+            </a>
+          </p>
+        </footer>
       </div>
     </div>
   )
