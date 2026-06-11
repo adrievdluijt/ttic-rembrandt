@@ -9,6 +9,13 @@
 // Row Level Security on the table means the anon key can only INSERT,
 // never SELECT/UPDATE/DELETE. Feedback can only be read via the Supabase
 // dashboard.
+//
+// Security note (changed in this version):
+//   - CORS is locked to an explicit allow-list of origins, not "*", so a
+//     script on another domain cannot flood the feedback table from a
+//     browser. (A determined server-to-server caller can still POST; the
+//     RLS INSERT-only policy and the field validation below are the
+//     backstop for that.)
 // =============================================================================
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -17,10 +24,28 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const MAX_MESSAGE_LENGTH = 5000;
 const MAX_SNAPSHOT_LENGTH = 1000;
 
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+// Keep this list in sync with the allow-list in api/review.js.
+const ALLOWED_ORIGINS = [
+  'https://rembrandteditor.com',
+  'https://www.rembrandteditor.com',
+  'https://rembrandtapp.com',
+  'https://www.rembrandtapp.com',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+export default async function handler(req, res) {
+  applyCors(req, res);
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
