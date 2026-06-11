@@ -11,32 +11,52 @@
     <meta property="og:type" content="website" />
 
     <!-- Open Graph completions -->
-<meta property="og:url" content="https://www.rembrandtapp.com/" />
-<meta property="og:site_name" content="Rembrandt Editor" />
-<meta property="og:locale" content="en_GB" />
-<meta property="og:image" content="public/og-image.png" />
-<meta property="og:image:width" content="1200" />
-<meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="Rembrandt Editor — trauma-informed content review" />
+    <meta property="og:url" content="https://www.rembrandteditor.com/" />
+    <meta property="og:site_name" content="Rembrandt Editor" />
+    <meta property="og:locale" content="en_GB" />
+    <meta property="og:image" content="https://www.rembrandteditor.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Rembrandt Editor — trauma-informed content review" />
 
-<!-- Twitter Cards (used by X, Bluesky and some others) -->
-<meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Rembrandt — Trauma-informed content review" />
-<meta name="twitter:description" content="Trauma-informed content review for readers in living experience. UK lens: FCA Consumer Duty, ISO 22458, GDS, WCAG 2.2 AA. EU and US lenses available." />
-<meta name="twitter:image" content="https://www.rembrandtapp.com/og-image.png" />
-<meta name="twitter:image:alt" content="Rembrandt Editor — trauma-informed content review" />
+    <!-- Twitter Cards (used by X, Bluesky and some others) -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Rembrandt — Trauma-informed content review" />
+    <meta name="twitter:description" content="Trauma-informed content review for readers in living experience. UK lens: FCA Consumer Duty, ISO 22458, GDS, WCAG 2.2 AA. EU and US lenses available." />
+    <meta name="twitter:image" content="https://www.rembrandteditor.com/og-image.png" />
+    <meta name="twitter:image:alt" content="Rembrandt Editor — trauma-informed content review" />
 
-<!-- Canonical URL -->
-<link rel="canonical" href="https://www.rembrandtapp.com/" />
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://www.rembrandteditor.com/" />
 
-<!-- Favicon (your console was 404'ing on /favicon.ico earlier) -->
-<link rel="icon" type="image/png" href="public/favicon.ico" />
-<link rel="apple-touch-icon" href="public/apple-touch-icon.png" />
+    <!-- Favicon. Vite serves /public at the site root, so reference assets
+         from / (not /public/). The .ico is declared as image/x-icon. -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <title>Rembrandt — Trauma-informed content review</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static fallback content. The React app replaces everything inside
+           #root once main.jsx mounts. Until then — and for crawlers and
+           no-JavaScript visitors — this gives the page real, indexable text. -->
+      <main style="max-width: 42rem; margin: 0 auto; padding: 3rem 1.25rem; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: #1a2730; line-height: 1.6;">
+        <h1 style="font-size: 1.75rem; margin-bottom: 0.5rem;">Rembrandt Editor</h1>
+        <p style="font-size: 1.125rem; margin-top: 0;">Trauma-informed content review for readers in living experience.</p>
+        <p>Rembrandt reviews writing for how usable it is by people in reduced-capacity states — grief, fear, pain, exhaustion, crisis, information overload, or the ordinary cognitive compromise of a bad day. It checks content against a UK lens (FCA Consumer Duty, ISO 22458, GDS content standards, WCAG 2.2 AA and Plain English) and equivalent EU and US frameworks, and returns a structured review with a suggested rewrite.</p>
+        <p>It is built for writers, editors and reviewers working on public-facing and regulated content.</p>
+        <p>Rembrandt is part of the trauma-informed content design practice at
+          <a href="https://traumainformedcontent.com/" style="color: #0A3D6E;">traumainformedcontent.com</a>.</p>
+        <noscript>
+          <p style="padding: 0.75rem 1rem; background: #fdf3f1; border-left: 3px solid #E5634A;">
+            Rembrandt needs JavaScript to run a review. Please enable JavaScript, or
+            <a href="https://traumainformedcontent.com/" style="color: #0A3D6E;">visit the practice site</a>
+            to find out more.
+          </p>
+        </noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
