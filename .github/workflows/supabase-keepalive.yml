@@ -1,0 +1,32 @@
+name: Supabase keep-alive
+
+# Free-tier Supabase projects pause after 7 days of no API activity.
+# This pings a lightweight REST endpoint every 3 days to reset that clock.
+# Once Rembrandt has real authenticated traffic, this can be deleted.
+
+on:
+  schedule:
+    # Every 3 days at 06:17 UTC. Odd minute avoids the top-of-hour cron stampede.
+    - cron: '17 6 */3 * *'
+  workflow_dispatch:  # lets you trigger it by hand from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST endpoint
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/profiles?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+          echo "Supabase responded with HTTP $STATUS"
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "Project alive."
+          else
+            echo "Unexpected status — project may be paused or the table/keys are wrong."
+            exit 1
+          fi
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
