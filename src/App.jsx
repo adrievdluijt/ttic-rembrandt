@@ -5,8 +5,8 @@ import { authFetch, supabase } from './lib/supabase';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.12';
-const VERSION_DATE = '21 May 2026';
+const VERSION = 'v0.9.13';
+const VERSION_DATE = '22 June 2026';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
@@ -114,7 +114,31 @@ const TARGET_AGE_OPTIONS = Array.from({ length: 14 }, (_, i) => i + 5);
 
 const PRO_PRICING_URL = 'https://traumainformedcontent.com/rembrandt-editor-plus/';
 
-const CHAR_LIMIT = 8000;
+// =============================================================================
+// CHARACTER LIMITS — tier-aware
+//
+// Free is held at a level suitable for occasional review of a single letter
+// or page. Professional and Team are raised to take a long letter set or a
+// policy passage in one pass without bumping the limit.
+//
+// The server enforces the matching ceiling in api/review.js
+// (MAX_TEXT_LENGTH_BY_TIER). These two MUST move together: if the client
+// allowed more than the server, a Pro user pasting past 8,000 would clear
+// the client check and then be rejected by the server; if the server allowed
+// more than the client, the client would block input the server would happily
+// have taken. Keep them in lockstep.
+//
+// The active limit is derived from the loaded tier at render time (see
+// CHAR_LIMIT inside the component). An unrecognised tier falls back to the
+// free ceiling, so a malformed tier value can never grant a larger allowance
+// than it should.
+// =============================================================================
+const CHAR_LIMITS = {
+  free: 8000,
+  professional: 20000,
+  team: 20000,
+};
+
 const PDF_MAX_BYTES = 2_500_000; // ~2.5 MB raw, ~3.3 MB base64 — sits under Vercel body limit
 
 // Client-side fetch timeout for the /api/review call. Long reviews
@@ -541,7 +565,7 @@ export default function App() {
   // tier: 'free' | 'professional' | 'team'. Fetched on mount from the
   // signed-in user's profile row. Defaults to 'free' for anonymous users
   // or while loading. Drives whether the drafting-context controls below
-  // are active or locked.
+  // are active or locked, and which character limit applies.
   //
   // targetReadingAge / audienceStates / urgency: the three drafting-context
   // fields. Always tracked in state so the UI is consistent whether or not
@@ -717,6 +741,18 @@ export default function App() {
     try { window.localStorage.setItem(ABOUT_DISMISS_KEY, '1'); } catch (e) {}
   };
 
+  // ---------------------------------------------------------------------------
+  // Active character limit, derived from the loaded tier.
+  //
+  // Computed on every render from `tier`. Tier starts as 'free' and updates
+  // async once the profile loads, so a Pro user briefly sees the free ceiling
+  // for the few hundred milliseconds before their tier resolves, then the
+  // higher one. That is harmless: the limit only ever increases on load, never
+  // traps them below where they should be. An unrecognised tier falls back to
+  // the free ceiling, so a malformed tier value can never grant more room than
+  // it should. The server enforces the matching ceiling in api/review.js.
+  // ---------------------------------------------------------------------------
+  const CHAR_LIMIT = CHAR_LIMITS[tier] ?? CHAR_LIMITS.free;
   const charsLeft = CHAR_LIMIT - content.length;
   const overLimit = charsLeft < 0;
 
@@ -834,7 +870,7 @@ export default function App() {
             ...(includeContext && { context: proContext }),
           };
 
-const response = await authFetch('/api/review', {
+      const response = await authFetch('/api/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -893,13 +929,15 @@ const response = await authFetch('/api/review', {
       );
     } catch (e) {
       console.error(e);
-      // Differentiate the three failure shapes so the user gets actionable
+      // Differentiate the failure shapes so the user gets actionable
       // feedback rather than a generic "something went wrong":
       //   - AbortError: our own timeout fired. Tell them so.
       //   - TypeError from fetch: usually a network or CORS problem
       //     before the request reached the server.
       //   - Anything else: surface the server's error message if we have
-      //     one, otherwise fall back to a generic message.
+      //     one, otherwise fall back to a generic message. This is also
+      //     where a future review-cap 429 ("monthly review limit reached")
+      //     will surface, since the server's error string is shown directly.
       if (e.name === 'AbortError') {
         setError("The review didn't come back in time. Try again, or shorten the passage if it's long. If this keeps happening, please use Send feedback so we can investigate.");
       } else if (e instanceof TypeError) {
@@ -1064,7 +1102,7 @@ const response = await authFetch('/api/review', {
     }
 
     try {
-const response = await authFetch('/api/feedback', {
+      const response = await authFetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2704,8 +2742,8 @@ const response = await authFetch('/api/feedback', {
             <a href={`${SITE}/resources/`} target="_blank" rel="noopener noreferrer">Resources</a>
             <a href={`${SITE}/help/`} target="_blank" rel="noopener noreferrer">Help</a>
             <a href={`${SITE}/accessibility/`} target="_blank" rel="noopener noreferrer">Accessibility statement</a>
-                        <a href={`${SITE}/privacy-policy/`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
-                        <a href={`${SITE}/terms/`} target="_blank" rel="noopener noreferrer">Terms of service</a>
+            <a href={`${SITE}/privacy-policy/`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
+            <a href={`${SITE}/terms/`} target="_blank" rel="noopener noreferrer">Terms of service</a>
             <a href={`${SITE}/about-us/`} target="_blank" rel="noopener noreferrer">About</a>
             <a href={`${SITE}/rembrandt-editor-plus/`} target="_blank" rel="noopener noreferrer">Pricing</a>
             <a href={`${SITE}/contact-us/`} target="_blank" rel="noopener noreferrer">Contact</a>
