@@ -10,12 +10,17 @@
 //   - Parses the model's JSON output server-side with retries, and returns
 //     the structured object the client expects.
 //   - Authenticates users via Supabase to gate the Pro drafting context.
+//   - Enforces a tier-aware character ceiling (this version).
 //
-// Security notes (changed in this version):
+// Security notes:
 //   - CORS is locked to an explicit allow-list of origins, not "*".
-//   - Reviewer "notes" are NO LONGER interpolated into the system prompt.
+//   - Reviewer "notes" are NOT interpolated into the system prompt.
 //     They are passed in the USER message as quoted, clearly-delimited data,
 //     so a crafted notes payload cannot issue system-level instructions.
+//   - The character ceiling is enforced AFTER authentication, because the
+//     ceiling depends on the authenticated tier. A spoofed `tier` in the
+//     request body has no effect: tier comes from getAuthenticatedTier,
+//     which reads the Supabase session, not anything the client sends.
 //
 // To edit the system prompt, edit buildSystemPrompt below, commit and push.
 // Vercel redeploys automatically.
@@ -101,11 +106,77 @@ const AUDIENCE_STATE_LABELS = {
 
 const VALID_URGENCY = ['routine', 'time-sensitive', 'crisis'];
 
-const MAX_TEXT_LENGTH = 8500;
+// -----------------------------------------------------------------------------
+// Tier-aware text ceilings
+//
+// These mirror CHAR_LIMITS in App.jsx with a 500-character tolerance, for the
+// same reason the client textarea allows maxLength + 500: a paste landing
+// slightly over should hit a clean validation message, not a silent
+// truncation. The SERVER value is the real enforcement — the client limit is
+// a courtesy. Free is the floor for any unrecognised tier, so a spoofed tier
+// string cannot buy more headroom.
+//
+// Keep these in lockstep with App.jsx CHAR_LIMITS:
+//   free 8000 / pro+team 20000  ->  here 8500 / 20500 (the +500 tolerance).
+// -----------------------------------------------------------------------------
+const MAX_TEXT_LENGTH_BY_TIER = {
+  free: 8500,
+  professional: 20500,
+  team: 20500,
+};
+
 const MAX_PDF_BASE64_BYTES = 3_500_000; // ~2.6 MB raw — matches App.jsx PDF_MAX_BYTES
 const MAX_NOTES_LENGTH = 2000;
 const MODEL = 'claude-sonnet-4-6';
 const JSON_PARSE_MAX_ATTEMPTS = 2;
+
+// -----------------------------------------------------------------------------
+// Monthly review caps — SCAFFOLD ONLY, NOT YET ENFORCED
+//
+// These values are the agreed caps, but NOTHING in this file enforces them
+// yet, and that is deliberate. Real enforcement needs three things this file
+// cannot safely assume:
+//
+//   1. Two columns on the `profiles` table:
+//        reviews_used     integer     not null default 0
+//        period_started   timestamptz not null default now()
+//      Add them in the Supabase SQL editor before wiring any of this up:
+//
+//        alter table profiles
+//          add column if not exists reviews_used integer not null default 0,
+//          add column if not exists period_started timestamptz not null default now();
+//
+//   2. A service-role Supabase client capable of reading and writing those
+//      columns. getAuthenticatedTier (in ./_lib/supabase-server.js) currently
+//      returns only the tier string; the increment-and-check needs either an
+//      extended helper that also returns the user id and a writable client, or
+//      a second helper alongside it. That file is not in front of me, so I am
+//      NOT importing functions from it that I cannot see — inventing a
+//      getAuthenticatedUserAndClient() here would be exactly the kind of
+//      fabricated specific Rembrandt itself exists to catch.
+//
+//   3. Lazy monthly reset: on each review, if 30 days have elapsed since
+//      period_started, reset reviews_used to 0 and move period_started to now
+//      BEFORE counting this review. No cron, no scheduled function — the reset
+//      rides on the next review after the window elapses, anchored to each
+//      user's own first-review date.
+//
+// The enforcement, once the above exists, is:
+//   - read reviews_used + period_started for the authenticated user
+//   - apply lazy reset
+//   - if reviews_used >= REVIEW_CAPS[tier], return 429 with a clear message
+//   - run the review
+//   - on success, increment reviews_used by 1
+//
+// Send me ./_lib/supabase-server.js and this becomes real. Until then it is
+// inert and labelled inert, so nothing here pretends to enforce a cap it does
+// not.
+// -----------------------------------------------------------------------------
+const REVIEW_CAPS = {
+  free: 30,
+  professional: 200,
+  team: 200,
+};
 
 // -----------------------------------------------------------------------------
 // Input validation
@@ -162,7 +233,7 @@ function validateContext(context) {
 // -----------------------------------------------------------------------------
 // System prompt builder
 //
-// The prompt is assembled from a fixed core plus three optional blocks:
+// The prompt is assembled from a fixed core plus optional blocks:
 //   - Role framing (role only) — applied for everyone when supplied
 //   - Readability scores (pre-calculated) — applied for text input when supplied
 //   - Pro drafting context — applied only for Pro/Team tier when supplied
@@ -492,9 +563,13 @@ export default async function handler(req, res) {
     context: rawContext,
   } = req.body || {};
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // Input validation — exactly one of content / pdfData required
-  // -----------------------------------------------------------------------------
+  //
+  // NOTE: the text-length check is NOT here any more. It is tier-aware, and
+  // tier is only known after authentication, so the length check has moved
+  // below, immediately after getAuthenticatedTier.
+  // ---------------------------------------------------------------------------
   const hasText = typeof content === 'string' && content.trim().length > 0;
   const hasPdf = typeof pdfData === 'string' && pdfData.length > 0;
 
@@ -504,9 +579,6 @@ export default async function handler(req, res) {
   if (hasText && hasPdf) {
     return res.status(400).json({ error: 'Send either content or a PDF, not both' });
   }
-  if (hasText && content.length > MAX_TEXT_LENGTH) {
-    return res.status(400).json({ error: `Content exceeds ${MAX_TEXT_LENGTH} characters` });
-  }
   if (hasPdf && pdfData.length > MAX_PDF_BASE64_BYTES) {
     return res.status(400).json({ error: 'PDF is too large' });
   }
@@ -514,24 +586,48 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Valid jurisdiction (UK, EU or US) is required' });
   }
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Authenticate and resolve tier. Tier comes from the Supabase session, never
+  // from the request body, so a spoofed tier field cannot raise the ceiling.
+  // ---------------------------------------------------------------------------
+  const { tier } = await getAuthenticatedTier(req);
+
+  // ---------------------------------------------------------------------------
+  // Tier-aware text ceiling. Enforced here, after the tier is known. An
+  // unrecognised tier falls back to the free ceiling, so a malformed tier
+  // value can never grant a larger allowance than it should.
+  // ---------------------------------------------------------------------------
+  const maxTextLength = MAX_TEXT_LENGTH_BY_TIER[tier] ?? MAX_TEXT_LENGTH_BY_TIER.free;
+  if (hasText && content.length > maxTextLength) {
+    return res.status(400).json({ error: `Content exceeds ${maxTextLength} characters for your plan` });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Monthly review cap — NOT YET ENFORCED. See the REVIEW_CAPS scaffold note
+  // near the top of this file. Enforcement is intentionally absent until the
+  // profiles columns exist and ./_lib/supabase-server.js exposes a writable
+  // client + user id. When that is in place, the check goes HERE (reject with
+  // 429 before the Anthropic call) and the increment goes after a successful
+  // review, just before the response is returned.
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
   // Sanitise reviewer context (free-tier features) and Pro drafting context
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   const role = validateRole(rawRole);
   const notes = validateNotes(rawNotes);
   const calculatedReadingAge = hasText ? validateReadabilityScore(rawReadingAge) : null;
   const calculatedSmog = hasText ? validateReadabilityScore(rawSmog) : null;
 
-  const { tier } = await getAuthenticatedTier(req);
   const sanitisedContext = validateContext(rawContext);
   const proContext =
     sanitisedContext && (tier === 'professional' || tier === 'team')
       ? sanitisedContext
       : null;
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // Build the system prompt (notes are NOT included here — see buildUserText)
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   const systemPrompt = buildSystemPrompt({
     jurisdiction,
     role,
@@ -542,10 +638,10 @@ export default async function handler(req, res) {
     isPdf: hasPdf,
   });
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // Build the user message content — text or PDF document block.
   // The reviewer's notes ride in the user text, clearly delimited.
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   const userText = buildUserText({
     jurisdictionLabel: JURISDICTIONS[jurisdiction].label,
     content: hasText ? content : '',
@@ -564,9 +660,9 @@ export default async function handler(req, res) {
       ]
     : userText;
 
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // Call Anthropic and return the parsed structured response
-  // -----------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   try {
     const parsed = await callAnthropicWithRetries({ systemPrompt, userContent });
 
@@ -575,6 +671,9 @@ export default async function handler(req, res) {
     if (notes && parsed.overall && !parsed.overall.contextApplied) {
       parsed.overall.contextApplied = notes;
     }
+
+    // When the review cap is wired up, the reviews_used increment for this
+    // user goes HERE, after a confirmed-successful review, before responding.
 
     return res.status(200).json({ ...parsed, _tier: tier });
   } catch (err) {
