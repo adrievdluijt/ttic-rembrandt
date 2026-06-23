@@ -5,8 +5,8 @@ import { authFetch, supabase } from './lib/supabase';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.13';
-const VERSION_DATE = '22 June 2026';
+const VERSION = 'v0.9.14';
+const VERSION_DATE = '23 June 2026';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
@@ -530,6 +530,21 @@ const ProseField = ({ text, className }) => {
 };
 
 // =============================================================================
+// EMAIL VALIDATION — used by the sign-in modal
+//
+// Deliberately permissive. The real check is whether Supabase can deliver a
+// magic link to the address; this just catches obvious typos before we waste
+// a round-trip. We don't try to enforce RFC 5322 — that path leads to a
+// regex no one can read and false negatives on valid addresses.
+// =============================================================================
+const isPlausibleEmail = (value) => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (trimmed.length < 5 || trimmed.length > 320) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+};
+
+// =============================================================================
 // COMPONENT
 // =============================================================================
 export default function App() {
@@ -558,6 +573,36 @@ export default function App() {
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackError, setFeedbackError] = useState(null);
+
+  // ---------------------------------------------------------------------------
+  // Auth + sign-in modal state
+  //
+  // session / userEmail: populated from the same auth listener that loads the
+  // tier (see the effect below). Anonymous users have session === null. We
+  // hold the email separately so the header control can render it without
+  // reaching into the session object shape everywhere.
+  //
+  // signInOpen etc.: the magic-link modal. It mirrors the feedback modal's
+  // lifecycle — overlay click to close, ESC to close, focus trap, return
+  // focus to trigger. signInSent flips to true once signInWithOtp succeeds
+  // so we can show the "check your email" confirmation in place of the form.
+  //
+  // We do NOT add a second onAuthStateChange listener. The existing tier
+  // effect already subscribes; we extend its callback to also set session
+  // and email. When the magic link is clicked in the user's email client,
+  // the resulting redirect loads the app fresh, Supabase restores the
+  // session, getSession resolves it, and the tier + email populate. No
+  // polling, no extra listener.
+  // ---------------------------------------------------------------------------
+  const [session, setSession] = useState(null);
+  const [userEmail, setUserEmail] = useState(null);
+
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [signInEmail, setSignInEmail] = useState('');
+  const [signInSubmitting, setSignInSubmitting] = useState(false);
+  const [signInSent, setSignInSent] = useState(false);
+  const [signInError, setSignInError] = useState(null);
+  const [signingOut, setSigningOut] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Professional-tier state
@@ -592,6 +637,8 @@ export default function App() {
   const pdfInputRef = useRef(null);
   const feedbackFirstFieldRef = useRef(null);
   const feedbackTriggerRef = useRef(null);
+  const signInFirstFieldRef = useRef(null);
+  const signInTriggerRef = useRef(null);
 
   // Phase timings (in ms) are scenography of what the server is doing.
   // We can't see the model's actual progress, so these are roughly
@@ -623,23 +670,33 @@ export default function App() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Load the signed-in user's tier on mount, and keep it fresh if the auth
-  // state changes (sign-out in another tab, magic-link sign-in completing,
-  // etc.). Anonymous users and lookup failures both resolve to 'free'.
+  // Load the signed-in user's session, email and tier on mount, and keep them
+  // fresh if the auth state changes (sign-out in another tab, magic-link
+  // sign-in completing, etc.). Anonymous users and lookup failures both
+  // resolve to tier 'free' with a null session and email.
+  //
+  // This is the single auth listener for the whole app. The sign-in modal
+  // does not add its own — when signInWithOtp's magic link is clicked, the
+  // redirect reloads the app, Supabase restores the session, and this
+  // effect's getSession + onAuthStateChange populate everything.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
 
-    async function loadTier(session) {
-      if (!session?.user) {
-        if (!cancelled) setTier('free');
+    async function applySession(currentSession) {
+      if (cancelled) return;
+      setSession(currentSession ?? null);
+      setUserEmail(currentSession?.user?.email ?? null);
+
+      if (!currentSession?.user) {
+        setTier('free');
         return;
       }
       try {
         const { data, error } = await supabase
           .from('profiles')
           .select('tier')
-          .eq('id', session.user.id)
+          .eq('id', currentSession.user.id)
           .single();
         if (cancelled) return;
         if (error || !data) {
@@ -652,10 +709,10 @@ export default function App() {
       }
     }
 
-    supabase.auth.getSession().then(({ data }) => loadTier(data.session));
+    supabase.auth.getSession().then(({ data }) => applySession(data.session));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => loadTier(newSession)
+      (_event, newSession) => applySession(newSession)
     );
 
     return () => {
@@ -664,29 +721,51 @@ export default function App() {
     };
   }, []);
 
-  // ESC key closes feedback modal
+  // ---------------------------------------------------------------------------
+  // Modal lifecycle effects — shared between the feedback and sign-in modals.
+  //
+  // A single set of effects handles ESC-to-close, first-field focus and the
+  // focus trap for whichever modal is open. Each effect closes over both
+  // modal-open flags and routes to the right close handler / container
+  // selector, so we don't duplicate the trap logic per modal.
+  // ---------------------------------------------------------------------------
+  const anyModalOpen = feedbackOpen || signInOpen;
+
+  // ESC closes the open modal
   useEffect(() => {
-    if (!feedbackOpen) return;
-    const onKey = (e) => { if (e.key === 'Escape') closeFeedback(); };
+    if (!anyModalOpen) return;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (feedbackOpen) closeFeedback();
+      else if (signInOpen) closeSignIn();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feedbackOpen]);
+  }, [anyModalOpen, feedbackOpen, signInOpen]);
 
-  // Focus first feedback field when modal opens
+  // Focus first field when feedback modal opens
   useEffect(() => {
     if (feedbackOpen && !feedbackSent) {
       setTimeout(() => feedbackFirstFieldRef.current?.focus(), 50);
     }
   }, [feedbackOpen, feedbackSent]);
 
-  // Trap keyboard focus inside the feedback modal while it is open, so Tab
-  // and Shift+Tab cycle through fields without escaping to the page behind.
+  // Focus email field when sign-in modal opens
   useEffect(() => {
-    if (!feedbackOpen) return;
+    if (signInOpen && !signInSent) {
+      setTimeout(() => signInFirstFieldRef.current?.focus(), 50);
+    }
+  }, [signInOpen, signInSent]);
+
+  // Trap keyboard focus inside whichever modal is open, so Tab and Shift+Tab
+  // cycle through fields without escaping to the page behind.
+  useEffect(() => {
+    if (!anyModalOpen) return;
+    const selector = feedbackOpen ? '.rb-feedback-modal' : '.rb-signin-modal';
     const handleTab = (e) => {
       if (e.key !== 'Tab') return;
-      const modal = document.querySelector('.rb-feedback-modal');
+      const modal = document.querySelector(selector);
       if (!modal) return;
       const focusables = Array.from(modal.querySelectorAll(
         'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -704,7 +783,8 @@ export default function App() {
     };
     window.addEventListener('keydown', handleTab);
     return () => window.removeEventListener('keydown', handleTab);
-  }, [feedbackOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyModalOpen, feedbackOpen, signInOpen]);
 
   useEffect(() => {
     if (!loading) {
@@ -1042,6 +1122,104 @@ export default function App() {
     } catch (e) { console.error(e); }
   };
 
+  // ---------------------------------------------------------------------------
+  // Sign-in modal handling
+  //
+  // openSignIn / closeSignIn mirror the feedback modal: capture the trigger
+  // element for focus return, close on overlay click / ESC / cancel, and
+  // reset the form state after a short delay so the closing transition
+  // doesn't flash empty fields.
+  //
+  // submitSignIn calls supabase.auth.signInWithOtp with emailRedirectTo set
+  // to the current origin, so the magic link lands the user back on the app.
+  // On success we show the "check your email" state; we do not close the
+  // modal automatically, because the user needs to read where the link went.
+  // The actual session arrives via the auth listener when they click the
+  // link, not here.
+  //
+  // signOut clears the session through Supabase; the auth listener handles
+  // resetting tier, email and session state.
+  // ---------------------------------------------------------------------------
+  const openSignIn = () => {
+    if (typeof document !== 'undefined') {
+      signInTriggerRef.current = document.activeElement;
+    }
+    setSignInOpen(true);
+    setMobileNavOpen(false);
+    // Pre-fill with any email the user already typed into the feedback form,
+    // as a small convenience — they're likely the same address.
+    if (!signInEmail && feedbackEmail && isPlausibleEmail(feedbackEmail)) {
+      setSignInEmail(feedbackEmail.trim());
+    }
+  };
+
+  const closeSignIn = () => {
+    setSignInOpen(false);
+    setTimeout(() => {
+      if (signInTriggerRef.current && typeof signInTriggerRef.current.focus === 'function') {
+        signInTriggerRef.current.focus();
+      }
+    }, 0);
+    setTimeout(() => {
+      setSignInError(null);
+      setSignInSent(false);
+      setSignInSubmitting(false);
+      // Keep signInEmail so a reopened modal remembers what they typed.
+    }, 200);
+  };
+
+  const canSubmitSignIn = isPlausibleEmail(signInEmail) && !signInSubmitting;
+
+  const submitSignIn = async () => {
+    if (!canSubmitSignIn) return;
+    setSignInSubmitting(true);
+    setSignInError(null);
+
+    try {
+      const redirectTo =
+        typeof window !== 'undefined' ? window.location.origin : undefined;
+      const { error } = await supabase.auth.signInWithOtp({
+        email: signInEmail.trim(),
+        options: {
+          emailRedirectTo: redirectTo,
+        },
+      });
+      if (error) throw error;
+      setSignInSent(true);
+      setAnnouncement('Magic link sent. Check your email to finish signing in.');
+    } catch (e) {
+      console.error(e);
+      // Supabase rate-limits magic-link requests; surface that specifically
+      // because "try again" is the wrong advice when the answer is "wait".
+      const msg = (e && e.message) ? e.message : '';
+      if (/rate/i.test(msg) || /too many/i.test(msg)) {
+        setSignInError("Too many sign-in requests in a short time. Wait a minute, then try again.");
+      } else {
+        setSignInError("Couldn't send the magic link. Check the address and try again.");
+      }
+    } finally {
+      setSignInSubmitting(false);
+    }
+  };
+
+  const resendSignIn = () => {
+    setSignInSent(false);
+    setSignInError(null);
+  };
+
+  const signOut = async () => {
+    setSigningOut(true);
+    try {
+      await supabase.auth.signOut();
+      setAnnouncement('Signed out.');
+      setMobileNavOpen(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
   // --- Feedback handling ---
   const openFeedback = () => {
     // Capture the element that opened the modal so we can return focus
@@ -1146,6 +1324,9 @@ export default function App() {
     'power-agency':       'power and agency',
   }[cat] || cat);
 
+  // Human-readable tier label for the account control.
+  const tierLabel = tier === 'team' ? 'Team' : tier === 'professional' ? 'Pro' : 'Free';
+
   const css = `
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; }
@@ -1212,6 +1393,10 @@ export default function App() {
     .rb-wordmark { font-family: 'Rethink Sans', sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.02em; color: var(--ink); }
     .rb-tagline { font-size: 13px; color: var(--muted); margin-top: 4px; letter-spacing: 0.005em; }
 
+    /* Header right-hand cluster holds the nav, the account control and the
+       mobile menu toggle in a single flex row so they align on one baseline. */
+    .rb-header-right { display: flex; align-items: center; gap: 10px; }
+
     .rb-nav { display: flex; align-items: center; gap: 4px; font-size: 14px; }
     .rb-nav a, .rb-nav .rb-nav-feedback-btn {
       color: var(--muted); text-decoration: none;
@@ -1234,8 +1419,61 @@ export default function App() {
       font-size: 13px; font-weight: 500;
     }
     .rb-nav-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+    /* ---- Account control (desktop) ----
+       Sits in the header-right cluster. Signed out shows a single Sign in
+       button. Signed in shows a compact pill with the email, tier label and
+       (for non-Pro) an upgrade link, plus a Sign out button. On narrow
+       viewports the whole account block is hidden and moves into the Menu
+       dropdown instead (see .rb-account-mobile below). */
+    .rb-account-desktop { display: flex; align-items: center; gap: 8px; }
+    .rb-signin-btn {
+      background: var(--ink); color: var(--surface);
+      border: 1px solid var(--ink);
+      padding: 8px 18px; border-radius: 999px;
+      font-size: 14px; font-weight: 600;
+      transition: background 0.15s ease;
+    }
+    .rb-signin-btn:hover { background: var(--ink-deep); }
+    .rb-signin-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+    .rb-account-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 999px; padding: 4px 6px 4px 14px;
+      font-size: 13px; max-width: 360px;
+    }
+    .rb-account-email {
+      color: var(--ink); font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 180px;
+    }
+    .rb-account-tier {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 999px; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      background: var(--panel); color: var(--muted);
+    }
+    .rb-account-tier-pro { background: var(--ink); color: var(--surface); }
+    .rb-account-upgrade {
+      font-size: 12px; font-weight: 600; color: var(--coral);
+      text-decoration: underline; text-underline-offset: 3px;
+      white-space: nowrap;
+    }
+    .rb-account-upgrade:hover { color: var(--ink); }
+    .rb-account-upgrade:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+    .rb-signout-btn {
+      background: transparent; border: 1px solid var(--rule);
+      color: var(--muted); padding: 5px 12px; border-radius: 999px;
+      font-size: 12px; font-weight: 500;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .rb-signout-btn:hover { border-color: var(--ink); color: var(--ink); }
+    .rb-signout-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
     @media (max-width: 940px) {
       .rb-nav { display: none; }
+      .rb-account-desktop { display: none; }
       .rb-nav-toggle { display: inline-block; }
       .rb-nav.rb-nav-open {
         display: flex; flex-direction: column; align-items: stretch;
@@ -1246,6 +1484,37 @@ export default function App() {
       }
       .rb-nav.rb-nav-open a, .rb-nav.rb-nav-open .rb-nav-feedback-btn { padding: 12px 16px; border-radius: 6px; text-align: left; }
       .rb-nav-feedback-btn { margin-left: 0 !important; margin-top: 4px; text-align: center !important; }
+    }
+
+    /* ---- Account control (mobile, inside Menu dropdown) ----
+       Rendered only inside the open mobile nav. A divider separates it from
+       the link list above. Signed out: a full-width Sign in button. Signed
+       in: the email, tier and (non-Pro) upgrade link stacked, with a
+       Sign out button beneath. */
+    .rb-account-mobile {
+      display: none;
+    }
+    @media (max-width: 940px) {
+      .rb-account-mobile {
+        display: flex; flex-direction: column; gap: 8px;
+        margin-top: 8px; padding-top: 12px;
+        border-top: 1px solid var(--rule);
+      }
+      .rb-account-mobile .rb-signin-btn,
+      .rb-account-mobile .rb-signout-btn {
+        width: 100%; text-align: center;
+      }
+      .rb-account-mobile-info {
+        display: flex; flex-direction: column; gap: 6px;
+        padding: 4px 4px 0;
+      }
+      .rb-account-mobile-email {
+        font-size: 14px; font-weight: 500; color: var(--ink);
+        word-break: break-all;
+      }
+      .rb-account-mobile-row {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      }
     }
 
     /* ---- Jurisdiction row ---- */
@@ -1955,7 +2224,7 @@ export default function App() {
       font-variant-numeric: tabular-nums;
     }
 
-    /* ---- Feedback modal ---- */
+    /* ---- Shared modal styles (feedback + sign-in) ---- */
     .rb-feedback-overlay {
       position: fixed; inset: 0;
       background: rgba(6, 40, 71, 0.5);
@@ -1965,7 +2234,7 @@ export default function App() {
       padding: 20px; z-index: 100;
       animation: rb-fade 0.2s ease;
     }
-    .rb-feedback-modal {
+    .rb-feedback-modal, .rb-signin-modal {
       background: var(--surface); border-radius: 12px;
       padding: 28px 28px 24px;
       width: 100%; max-width: 520px; max-height: 90vh;
@@ -1973,6 +2242,7 @@ export default function App() {
       box-shadow: 0 20px 60px rgba(10, 61, 110, 0.25);
       position: relative;
     }
+    .rb-signin-modal { max-width: 460px; }
     .rb-feedback-header {
       display: flex; justify-content: space-between; align-items: center;
       margin-bottom: 18px;
@@ -2114,8 +2384,30 @@ export default function App() {
     .rb-feedback-success-actions {
       display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
     }
+
+    /* ---- Sign-in modal specifics ----
+       Reuses the feedback modal's field, button and success styles via the
+       shared selectors above. These rules cover only what's distinct:
+       the explanatory copy, the email-to address echo in the sent state,
+       and the resend affordance. */
+    .rb-signin-email-echo {
+      font-weight: 600; color: var(--ink); word-break: break-all;
+    }
+    .rb-signin-note {
+      font-size: 12px; color: var(--muted); line-height: 1.5;
+      margin-top: 10px;
+    }
+    .rb-signin-resend {
+      background: transparent; border: none; padding: 0;
+      color: var(--muted); font-size: 13px;
+      text-decoration: underline; text-underline-offset: 3px;
+      cursor: pointer;
+    }
+    .rb-signin-resend:hover { color: var(--ink); }
+    .rb-signin-resend:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+
     @media (max-width: 600px) {
-      .rb-feedback-modal { padding: 22px 20px 20px; max-height: 95vh; }
+      .rb-feedback-modal, .rb-signin-modal { padding: 22px 20px 20px; max-height: 95vh; }
       .rb-feedback-actions { flex-direction: column-reverse; }
       .rb-feedback-cancel, .rb-feedback-submit { width: 100%; }
     }
@@ -2165,6 +2457,91 @@ export default function App() {
   // Document type label for the feedback context disclosure
   const feedbackDocLabel = content ? 'text input' : pdfFile ? `PDF (${pdfFile.name})` : 'none';
 
+  // ---------------------------------------------------------------------------
+  // Account control renderers — shared markup for desktop and mobile.
+  //
+  // Both surfaces show the same logical states (signed out / signed in,
+  // tier-aware upgrade link), but with layout differences, so each gets its
+  // own small render function rather than one over-conditional block.
+  // ---------------------------------------------------------------------------
+  const renderDesktopAccount = () => {
+    if (!session) {
+      return (
+        <div className="rb-account-desktop">
+          <button type="button" onClick={openSignIn} className="rb-signin-btn">
+            Sign in
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="rb-account-desktop">
+        <span className="rb-account-pill">
+          <span className="rb-account-email" title={userEmail || ''}>{userEmail}</span>
+          <span className={`rb-account-tier${isPro ? ' rb-account-tier-pro' : ''}`}>
+            {tierLabel}
+          </span>
+          {!isPro && (
+            <a
+              href={PRO_PRICING_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rb-account-upgrade"
+            >
+              Upgrade
+            </a>
+          )}
+        </span>
+        <button
+          type="button" onClick={signOut} disabled={signingOut}
+          className="rb-signout-btn"
+        >
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+      </div>
+    );
+  };
+
+  const renderMobileAccount = () => {
+    if (!session) {
+      return (
+        <div className="rb-account-mobile">
+          <button type="button" onClick={openSignIn} className="rb-signin-btn">
+            Sign in
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="rb-account-mobile">
+        <div className="rb-account-mobile-info">
+          <span className="rb-account-mobile-email">{userEmail}</span>
+          <span className="rb-account-mobile-row">
+            <span className={`rb-account-tier${isPro ? ' rb-account-tier-pro' : ''}`}>
+              {tierLabel}
+            </span>
+            {!isPro && (
+              <a
+                href={PRO_PRICING_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rb-account-upgrade"
+              >
+                Upgrade to Professional →
+              </a>
+            )}
+          </span>
+        </div>
+        <button
+          type="button" onClick={signOut} disabled={signingOut}
+          className="rb-signout-btn"
+        >
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="rb-root">
       <style>{css}</style>
@@ -2186,24 +2563,31 @@ export default function App() {
               </span>
             </a>
 
-            <button
-              type="button" className="rb-nav-toggle"
-              aria-expanded={mobileNavOpen} aria-controls="rb-nav"
-              onClick={() => setMobileNavOpen(o => !o)}
-            >
-              {mobileNavOpen ? 'Close' : 'Menu'}
-            </button>
+            <div className="rb-header-right">
+              <nav id="rb-nav" className={`rb-nav${mobileNavOpen ? ' rb-nav-open' : ''}`} aria-label="Main">
+                {NAV_LINKS.map((link) => (
+                  <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer">
+                    {link.label}
+                  </a>
+                ))}
+                <button type="button" onClick={openFeedback} className="rb-nav-feedback-btn">
+                  Send feedback
+                </button>
+                {/* Account control inside the mobile dropdown only; hidden on desktop via CSS. */}
+                {renderMobileAccount()}
+              </nav>
 
-            <nav id="rb-nav" className={`rb-nav${mobileNavOpen ? ' rb-nav-open' : ''}`} aria-label="Main">
-              {NAV_LINKS.map((link) => (
-                <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer">
-                  {link.label}
-                </a>
-              ))}
-              <button type="button" onClick={openFeedback} className="rb-nav-feedback-btn">
-                Send feedback
+              {/* Account control in the header row on desktop; hidden ≤940px via CSS. */}
+              {renderDesktopAccount()}
+
+              <button
+                type="button" className="rb-nav-toggle"
+                aria-expanded={mobileNavOpen} aria-controls="rb-nav"
+                onClick={() => setMobileNavOpen(o => !o)}
+              >
+                {mobileNavOpen ? 'Close' : 'Menu'}
               </button>
-            </nav>
+            </div>
           </div>
         </div>
 
@@ -2760,6 +3144,7 @@ export default function App() {
         </div>
       </footer>
 
+      {/* ---- Feedback modal ---- */}
       {feedbackOpen && (
         <div className="rb-feedback-overlay" onClick={closeFeedback}>
           <div
@@ -2889,6 +3274,102 @@ export default function App() {
                     className="rb-feedback-submit"
                   >
                     {feedbackSubmitting ? 'Sending...' : 'Send feedback'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Sign-in modal ----
+          Mirrors the feedback modal: same overlay, focus trap, ESC handling
+          and return-focus behaviour, all shared through the modal effects
+          above. Two states: the email form, and the "check your email"
+          confirmation shown after signInWithOtp succeeds. The session itself
+          arrives via the auth listener when the user clicks the link in their
+          inbox, so this modal's job ends at "link sent". */}
+      {signInOpen && (
+        <div className="rb-feedback-overlay" onClick={closeSignIn}>
+          <div
+            className="rb-signin-modal"
+            role="dialog"
+            aria-labelledby="signin-title"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="rb-feedback-header">
+              <h2 id="signin-title" className="rb-display rb-feedback-title">
+                {signInSent ? 'Check your email' : 'Sign in'}
+              </h2>
+              <button
+                type="button" onClick={closeSignIn}
+                aria-label="Close sign-in form" className="rb-feedback-close"
+              >×</button>
+            </div>
+
+            {signInSent ? (
+              <div className="rb-feedback-success" style={{ textAlign: 'left' }}>
+                <p className="rb-feedback-success-body" style={{ marginBottom: 14 }}>
+                  We've sent a sign-in link to{' '}
+                  <span className="rb-signin-email-echo">{signInEmail.trim()}</span>. Open the email and click the link to finish signing in. The link works once and expires after a short while.
+                </p>
+                <p className="rb-signin-note">
+                  No email after a minute or two? Check your spam folder, or{' '}
+                  <button type="button" onClick={resendSignIn} className="rb-signin-resend">
+                    try a different address
+                  </button>.
+                </p>
+                <div className="rb-feedback-actions">
+                  <button type="button" onClick={closeSignIn} className="rb-feedback-submit">
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="rb-feedback-intro">
+                  Enter your email and we'll send you a sign-in link — no password to remember. Click the link in your inbox and you're in. If you've bought Professional, signing in is how Rembrandt knows to apply it.
+                </p>
+
+                <div className="rb-feedback-field">
+                  <label htmlFor="signin-email">Email address</label>
+                  <input
+                    id="signin-email"
+                    ref={signInFirstFieldRef}
+                    type="email"
+                    value={signInEmail}
+                    onChange={(e) => setSignInEmail(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && canSubmitSignIn) {
+                        e.preventDefault();
+                        submitSignIn();
+                      }
+                    }}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    aria-describedby="signin-help"
+                  />
+                  <div id="signin-help" className="rb-signin-note">
+                    We'll only use this to send the sign-in link and, if you're a Professional subscriber, to match your plan.
+                  </div>
+                </div>
+
+                {signInError && (
+                  <div className="rb-feedback-error" role="alert">{signInError}</div>
+                )}
+
+                <div className="rb-feedback-actions">
+                  <button type="button" onClick={closeSignIn} className="rb-feedback-cancel">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitSignIn}
+                    disabled={!canSubmitSignIn}
+                    className="rb-feedback-submit"
+                  >
+                    {signInSubmitting ? 'Sending link…' : 'Send me a link'}
                   </button>
                 </div>
               </>
