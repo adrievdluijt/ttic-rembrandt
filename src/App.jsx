@@ -5,8 +5,8 @@ import { authFetch, supabase } from './lib/supabase';
 // VERSION & CONFIG
 // Edit these constants to update the version stamp.
 // =============================================================================
-const VERSION = 'v0.9.14';
-const VERSION_DATE = '23 June 2026';
+const VERSION = 'v0.9.15';
+const VERSION_DATE = '24 June 2026';
 
 // =============================================================================
 // PALETTE — mapped to traumainformedcontent.com
@@ -153,6 +153,16 @@ const ABOUT_DISMISS_KEY = 'rb_about_dismissed_v3';
 
 const SITE = 'https://traumainformedcontent.com';
 
+// =============================================================================
+// NAV LINKS
+//
+// The full set is the marketing-site navigation. In the header we now split
+// it: only a short primary set shows in the desktop nav band (the rest live
+// in the footer, which already carries every one of them), while the mobile
+// dropdown still lists the complete set so nothing becomes unreachable on a
+// small screen. Editing DESKTOP_NAV_LABELS is how you tune what shows up top
+// without losing anything from the mobile menu or the footer.
+// =============================================================================
 const NAV_LINKS = [
   { label: 'What is trauma-informed content?', href: `${SITE}/what-is-trauma-informed-content/` },
   { label: 'Resources',                         href: `${SITE}/resources/` },
@@ -161,6 +171,12 @@ const NAV_LINKS = [
   { label: 'About',                             href: `${SITE}/about-us/` },
   { label: 'Contact',                           href: `${SITE}/contact-us/` },
 ];
+
+// Which links appear in the slimmed desktop nav band. Everything else stays
+// in the mobile dropdown and the footer. Pricing earns its place as the
+// conversion path; Help earns its place as the in-app support route.
+const DESKTOP_NAV_LABELS = ['Pricing', 'Help'];
+const DESKTOP_NAV_LINKS = NAV_LINKS.filter((l) => DESKTOP_NAV_LABELS.includes(l.label));
 
 const EXAMPLE = `Dear Occupier,
 
@@ -544,6 +560,17 @@ const isPlausibleEmail = (value) => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
 };
 
+// Derive a single-character avatar glyph from an email address. Falls back
+// to a neutral dot if there's nothing usable. Used as the compact account
+// trigger so the header carries one small control instead of a wide pill.
+const avatarInitial = (email) => {
+  if (typeof email !== 'string') return '•';
+  const trimmed = email.trim();
+  if (!trimmed) return '•';
+  const first = trimmed[0];
+  return /[a-z0-9]/i.test(first) ? first.toUpperCase() : '•';
+};
+
 // =============================================================================
 // COMPONENT
 // =============================================================================
@@ -605,6 +632,24 @@ export default function App() {
   const [signingOut, setSigningOut] = useState(false);
 
   // ---------------------------------------------------------------------------
+  // Account dropdown state
+  //
+  // accountMenuOpen drives the popover that now holds everything the old wide
+  // account pill used to spread across the header: the email, the tier badge,
+  // the upgrade link (free only), Send feedback, and Sign out. One trigger
+  // button, one menu. This is the change that buys back the header width.
+  //
+  // The menu manages its own focus and dismissal — it is a third interactive
+  // surface alongside the two modals, so rather than bend the modal focus-trap
+  // effect (which is keyed on feedbackOpen / signInOpen) to cover it, it gets
+  // small self-contained handlers: outside-click and Escape close it and
+  // return focus to the trigger. We deliberately do NOT trap focus inside it;
+  // a menu is not a modal, and Tab should be free to move out of it, closing
+  // it on the way, which is the conventional menu-button behaviour.
+  // ---------------------------------------------------------------------------
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+
+  // ---------------------------------------------------------------------------
   // Professional-tier state
   //
   // tier: 'free' | 'professional' | 'team'. Fetched on mount from the
@@ -639,6 +684,11 @@ export default function App() {
   const feedbackTriggerRef = useRef(null);
   const signInFirstFieldRef = useRef(null);
   const signInTriggerRef = useRef(null);
+
+  // Account dropdown refs: the trigger button (for focus return) and the menu
+  // container (for outside-click detection and moving focus inside on open).
+  const accountTriggerRef = useRef(null);
+  const accountMenuRef = useRef(null);
 
   // Phase timings (in ms) are scenography of what the server is doing.
   // We can't see the model's actual progress, so these are roughly
@@ -785,6 +835,58 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anyModalOpen, feedbackOpen, signInOpen]);
+
+  // ---------------------------------------------------------------------------
+  // Account dropdown lifecycle
+  //
+  // Two concerns, kept separate from the modal effects above because a menu
+  // is not a modal: it doesn't trap focus, and it dismisses on outside click
+  // as well as Escape.
+  //
+  //   1. Outside-click / Escape close. While the menu is open, a pointerdown
+  //      anywhere outside both the menu and its trigger closes it; Escape does
+  //      the same and returns focus to the trigger so keyboard users aren't
+  //      stranded.
+  //   2. Focus-in on open. When the menu opens we move focus to its first
+  //      focusable item, so a keyboard user lands inside it rather than having
+  //      to tab from the trigger.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+
+    const onPointerDown = (e) => {
+      const menu = accountMenuRef.current;
+      const trigger = accountTriggerRef.current;
+      if (menu && menu.contains(e.target)) return;
+      if (trigger && trigger.contains(e.target)) return;
+      setAccountMenuOpen(false);
+    };
+
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      setAccountMenuOpen(false);
+      // Return focus to the trigger so the keyboard user has somewhere to be.
+      setTimeout(() => accountTriggerRef.current?.focus(), 0);
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKey);
+
+    // Move focus into the menu so keyboard users land inside it on open.
+    setTimeout(() => {
+      const menu = accountMenuRef.current;
+      if (!menu) return;
+      const firstFocusable = menu.querySelector(
+        'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      firstFocusable?.focus();
+    }, 0);
+
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     if (!loading) {
@@ -1123,6 +1225,22 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
+  // Account dropdown handling
+  //
+  // toggleAccountMenu captures the trigger element for focus return (it is the
+  // trigger, so this is just a ref the outside-click / Escape handlers reuse)
+  // and flips the open flag. closeAccountMenu is the shared close used by the
+  // menu items so selecting any of them dismisses the popover.
+  // ---------------------------------------------------------------------------
+  const toggleAccountMenu = () => {
+    setAccountMenuOpen((open) => !open);
+  };
+
+  const closeAccountMenu = () => {
+    setAccountMenuOpen(false);
+  };
+
+  // ---------------------------------------------------------------------------
   // Sign-in modal handling
   //
   // openSignIn / closeSignIn mirror the feedback modal: capture the trigger
@@ -1146,6 +1264,7 @@ export default function App() {
     }
     setSignInOpen(true);
     setMobileNavOpen(false);
+    setAccountMenuOpen(false);
     // Pre-fill with any email the user already typed into the feedback form,
     // as a small convenience — they're likely the same address.
     if (!signInEmail && feedbackEmail && isPlausibleEmail(feedbackEmail)) {
@@ -1213,6 +1332,7 @@ export default function App() {
       await supabase.auth.signOut();
       setAnnouncement('Signed out.');
       setMobileNavOpen(false);
+      setAccountMenuOpen(false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -1229,6 +1349,7 @@ export default function App() {
     }
     setFeedbackOpen(true);
     setMobileNavOpen(false);
+    setAccountMenuOpen(false);
   };
 
   const closeFeedback = () => {
@@ -1394,24 +1515,36 @@ export default function App() {
     .rb-tagline { font-size: 13px; color: var(--muted); margin-top: 4px; letter-spacing: 0.005em; }
 
     /* Header right-hand cluster holds the nav, the account control and the
-       mobile menu toggle in a single flex row so they align on one baseline. */
+       mobile menu toggle in a single flex row so they align on one baseline.
+       With the account pill collapsed into a single dropdown trigger and the
+       desktop nav slimmed to two links, this cluster carries far less width
+       than it did, which is what un-cramps the header. */
     .rb-header-right { display: flex; align-items: center; gap: 10px; }
 
     .rb-nav { display: flex; align-items: center; gap: 4px; font-size: 14px; }
-    .rb-nav a, .rb-nav .rb-nav-feedback-btn {
+    .rb-nav a {
       color: var(--muted); text-decoration: none;
       padding: 8px 14px; border-radius: 999px;
       transition: background 0.15s ease, color 0.15s ease;
       background: transparent; border: none; font-family: inherit; font-size: inherit;
     }
-    .rb-nav a:hover, .rb-nav .rb-nav-feedback-btn:hover { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
-    .rb-nav a:focus-visible, .rb-nav .rb-nav-feedback-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-    .rb-nav-feedback-btn {
+    .rb-nav a:hover { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
+    .rb-nav a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+    /* Feedback button styling is retained for the mobile nav, where Send
+       feedback still appears as a button inside the dropdown. On desktop it
+       has moved into the account menu, so the bordered-pill form no longer
+       competes with the nav links in the header band. */
+    .rb-nav .rb-nav-feedback-btn {
       color: var(--ink) !important; font-weight: 600;
       border: 1px solid var(--ink) !important; border-radius: 999px;
+      padding: 8px 14px;
+      background: transparent; font-family: inherit; font-size: inherit;
       margin-left: 6px;
     }
-    .rb-nav-feedback-btn:hover { background: var(--ink) !important; color: var(--surface) !important; }
+    .rb-nav .rb-nav-feedback-btn:hover { background: var(--ink) !important; color: var(--surface) !important; }
+    .rb-nav .rb-nav-feedback-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
     .rb-nav-toggle {
       display: none;
       background: transparent; border: 1px solid var(--rule);
@@ -1420,13 +1553,20 @@ export default function App() {
     }
     .rb-nav-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-    /* ---- Account control (desktop) ----
-       Sits in the header-right cluster. Signed out shows a single Sign in
-       button. Signed in shows a compact pill with the email, tier label and
-       (for non-Pro) an upgrade link, plus a Sign out button. On narrow
-       viewports the whole account block is hidden and moves into the Menu
-       dropdown instead (see .rb-account-mobile below). */
-    .rb-account-desktop { display: flex; align-items: center; gap: 8px; }
+    /* ---- Account control (dropdown) ----
+       Signed out: a single Sign in button. Signed in: a compact trigger
+       button showing an avatar initial, the email (which truncates) and the
+       tier badge, with a caret. Clicking it opens a popover menu containing
+       the full email, tier, Upgrade (free only), Send feedback and Sign out.
+       This replaces the old wide inline pill + separate Sign out button, so
+       the header carries one control instead of two.
+
+       The whole account region is position: relative so the menu can anchor
+       to it with position: absolute. On narrow viewports the desktop account
+       region is hidden and the equivalent controls move into the mobile nav
+       dropdown (see .rb-account-mobile). */
+    .rb-account { position: relative; display: flex; align-items: center; }
+
     .rb-signin-btn {
       background: var(--ink); color: var(--surface);
       border: 1px solid var(--ink);
@@ -1437,24 +1577,72 @@ export default function App() {
     .rb-signin-btn:hover { background: var(--ink-deep); }
     .rb-signin-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-    .rb-account-pill {
+    .rb-account-trigger {
       display: inline-flex; align-items: center; gap: 8px;
       background: var(--surface); border: 1px solid var(--rule);
-      border-radius: 999px; padding: 4px 6px 4px 14px;
-      font-size: 13px; max-width: 360px;
+      border-radius: 999px; padding: 4px 12px 4px 4px;
+      font-size: 13px; max-width: 260px;
+      transition: border-color 0.15s ease;
     }
-    .rb-account-email {
+    .rb-account-trigger:hover { border-color: var(--ink); }
+    .rb-account-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-account-avatar {
+      width: 28px; height: 28px; flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--ink); color: var(--surface);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      font-family: 'Rethink Sans', sans-serif;
+    }
+    .rb-account-trigger-email {
       color: var(--ink); font-weight: 500;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      max-width: 180px;
+      max-width: 140px;
     }
+    .rb-account-caret {
+      color: var(--muted); font-size: 10px; flex-shrink: 0;
+      transition: transform 0.15s ease;
+    }
+    .rb-account-trigger[aria-expanded="true"] .rb-account-caret { transform: rotate(180deg); }
+
     .rb-account-tier {
       display: inline-block; padding: 2px 8px;
       border-radius: 999px; font-size: 11px; font-weight: 700;
       letter-spacing: 0.04em; text-transform: uppercase;
       background: var(--panel); color: var(--muted);
+      flex-shrink: 0;
     }
     .rb-account-tier-pro { background: var(--ink); color: var(--surface); }
+
+    /* The dropdown menu itself. Anchored to the trigger, right-aligned so it
+       doesn't run off the edge of the viewport. Shadowed to lift it off the
+       page. Width is generous enough to show a full email without wrapping
+       at most lengths, but capped so it doesn't sprawl. */
+    .rb-account-menu {
+      position: absolute; top: calc(100% + 8px); right: 0;
+      min-width: 240px; max-width: 320px;
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 12px; padding: 8px;
+      box-shadow: 0 16px 40px rgba(10,61,110,0.16);
+      z-index: 40;
+      animation: rb-menu-in 0.14s ease;
+    }
+    @keyframes rb-menu-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .rb-account-menu-head {
+      padding: 8px 10px 10px;
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: 6px;
+    }
+    .rb-account-menu-email {
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      word-break: break-all; line-height: 1.4; margin-bottom: 6px;
+    }
+    .rb-account-menu-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
     .rb-account-upgrade {
       font-size: 12px; font-weight: 600; color: var(--coral);
       text-decoration: underline; text-underline-offset: 3px;
@@ -1462,18 +1650,24 @@ export default function App() {
     }
     .rb-account-upgrade:hover { color: var(--ink); }
     .rb-account-upgrade:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
-    .rb-signout-btn {
-      background: transparent; border: 1px solid var(--rule);
-      color: var(--muted); padding: 5px 12px; border-radius: 999px;
-      font-size: 12px; font-weight: 500;
-      transition: border-color 0.15s ease, color 0.15s ease;
+
+    /* Menu items: full-width, left-aligned, button-or-link, with a hover
+       wash. Used for Send feedback and Sign out (and Upgrade on mobile). */
+    .rb-account-menu-item {
+      display: block; width: 100%; text-align: left;
+      background: transparent; border: none;
+      padding: 9px 10px; border-radius: 8px;
+      font-size: 14px; color: var(--ink); font-family: inherit;
+      text-decoration: none;
+      transition: background 0.12s ease;
     }
-    .rb-signout-btn:hover { border-color: var(--ink); color: var(--ink); }
-    .rb-signout-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-account-menu-item:hover { background: rgba(10,61,110,0.06); }
+    .rb-account-menu-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+    .rb-account-menu-item-danger { color: var(--harm, #B85A3D); }
 
     @media (max-width: 940px) {
       .rb-nav { display: none; }
-      .rb-account-desktop { display: none; }
+      .rb-account { display: none; }
       .rb-nav-toggle { display: inline-block; }
       .rb-nav.rb-nav-open {
         display: flex; flex-direction: column; align-items: stretch;
@@ -1515,6 +1709,14 @@ export default function App() {
       .rb-account-mobile-row {
         display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
       }
+      .rb-signout-btn {
+        background: transparent; border: 1px solid var(--rule);
+        color: var(--muted); padding: 10px 12px; border-radius: 8px;
+        font-size: 14px; font-weight: 500;
+        transition: border-color 0.15s ease, color 0.15s ease;
+      }
+      .rb-signout-btn:hover { border-color: var(--ink); color: var(--ink); }
+      .rb-signout-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     }
 
     /* ---- Jurisdiction row ---- */
@@ -1537,8 +1739,35 @@ export default function App() {
     .rb-jur-btn:hover:not([aria-pressed="true"]) { background: rgba(10, 61, 110, 0.06); color: var(--ink); }
     .rb-jur-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-    .rb-fw-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0; align-items: center; }
-    .rb-fw-label { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; font-weight: 600; margin-right: 4px; }
+    /* ---- Frameworks disclosure ----
+       Previously the framework chips sat permanently expanded in the lens row,
+       taking a full band of header width next to the jurisdiction toggle. They
+       are now behind a details/summary disclosure: collapsed by default to a
+       single "N frameworks" affordance, expanding to the chip list on demand.
+       This reclaims the second dense header band while keeping the frameworks
+       (and their verifying links) one click away. The chips themselves keep
+       their original styling. */
+    .rb-fw-details { display: inline-block; }
+    .rb-fw-summary {
+      cursor: pointer; list-style: none;
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 12px; color: var(--muted);
+      padding: 7px 14px; border-radius: 999px;
+      border: 1px solid var(--rule); background: var(--surface);
+      letter-spacing: 0.01em;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .rb-fw-summary::-webkit-details-marker { display: none; }
+    .rb-fw-summary::after {
+      content: '▾'; font-size: 10px; color: var(--faint);
+      transition: transform 0.15s ease;
+    }
+    .rb-fw-details[open] .rb-fw-summary::after { transform: rotate(180deg); }
+    .rb-fw-summary:hover { border-color: var(--ink); color: var(--ink); }
+    .rb-fw-summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .rb-fw-summary strong { font-weight: 700; color: var(--ink); }
+
+    .rb-fw-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 10px 0 0; align-items: center; }
     .rb-fw {
       font-size: 12px;
       border-radius: 999px;
@@ -2155,7 +2384,7 @@ export default function App() {
     .rb-issue-suggest-label { font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--ink); margin-bottom: 4px; }
 
     /* ---- Paragraph spacing inside prose fields ----
-       ProseField splits model-emitted text on \n\n and renders each
+       ProseField splits model-emitted text on \\n\\n and renders each
        chunk as a <p>. The default browser margin would be too large for
        inline use; this gives consistent visual paragraph spacing inside
        summary, observation and suggestion blocks without overdoing it. */
@@ -2436,7 +2665,8 @@ export default function App() {
       .rb-fade,
       .rb-dots span,
       .rb-phase-active,
-      .rb-feedback-overlay {
+      .rb-feedback-overlay,
+      .rb-account-menu {
         animation: none !important;
       }
       *, *::before, *::after {
@@ -2457,17 +2687,26 @@ export default function App() {
   // Document type label for the feedback context disclosure
   const feedbackDocLabel = content ? 'text input' : pdfFile ? `PDF (${pdfFile.name})` : 'none';
 
+  // Framework count for the collapsed disclosure summary.
+  const frameworkCount = JURISDICTIONS[jurisdiction].frameworks.length;
+
   // ---------------------------------------------------------------------------
-  // Account control renderers — shared markup for desktop and mobile.
+  // Account control renderers — desktop dropdown and mobile inline block.
   //
-  // Both surfaces show the same logical states (signed out / signed in,
-  // tier-aware upgrade link), but with layout differences, so each gets its
-  // own small render function rather than one over-conditional block.
+  // Desktop: a single trigger button that opens the popover menu. The menu
+  // holds the email, tier, upgrade (free only), Send feedback and Sign out —
+  // everything the old wide pill plus separate buttons used to spread across
+  // the header. Signed-out users get a single Sign in button (no menu needed).
+  //
+  // Mobile: the same logical contents, but rendered inline inside the open
+  // nav dropdown rather than behind a second popover, because nesting a
+  // popover inside the mobile menu would be fiddly and offers no benefit on a
+  // surface that is already a dropdown.
   // ---------------------------------------------------------------------------
   const renderDesktopAccount = () => {
     if (!session) {
       return (
-        <div className="rb-account-desktop">
+        <div className="rb-account">
           <button type="button" onClick={openSignIn} className="rb-signin-btn">
             Sign in
           </button>
@@ -2475,29 +2714,62 @@ export default function App() {
       );
     }
     return (
-      <div className="rb-account-desktop">
-        <span className="rb-account-pill">
-          <span className="rb-account-email" title={userEmail || ''}>{userEmail}</span>
-          <span className={`rb-account-tier${isPro ? ' rb-account-tier-pro' : ''}`}>
-            {tierLabel}
-          </span>
-          {!isPro && (
-            <a
-              href={PRO_PRICING_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rb-account-upgrade"
-            >
-              Upgrade
-            </a>
-          )}
-        </span>
+      <div className="rb-account">
         <button
-          type="button" onClick={signOut} disabled={signingOut}
-          className="rb-signout-btn"
+          type="button"
+          ref={accountTriggerRef}
+          onClick={toggleAccountMenu}
+          className="rb-account-trigger"
+          aria-haspopup="menu"
+          aria-expanded={accountMenuOpen}
+          aria-label={`Account menu for ${userEmail || 'your account'}, ${tierLabel} tier`}
         >
-          {signingOut ? 'Signing out…' : 'Sign out'}
+          <span className="rb-account-avatar" aria-hidden="true">{avatarInitial(userEmail)}</span>
+          <span className="rb-account-trigger-email" title={userEmail || ''}>{userEmail}</span>
+          <span className={`rb-account-tier${isPro ? ' rb-account-tier-pro' : ''}`}>{tierLabel}</span>
+          <span className="rb-account-caret" aria-hidden="true">▾</span>
         </button>
+
+        {accountMenuOpen && (
+          <div className="rb-account-menu" role="menu" ref={accountMenuRef} aria-label="Account">
+            <div className="rb-account-menu-head">
+              <div className="rb-account-menu-email">{userEmail}</div>
+              <div className="rb-account-menu-row">
+                <span className={`rb-account-tier${isPro ? ' rb-account-tier-pro' : ''}`}>{tierLabel}</span>
+                {!isPro && (
+                  <a
+                    href={PRO_PRICING_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rb-account-upgrade"
+                    role="menuitem"
+                    onClick={closeAccountMenu}
+                  >
+                    Upgrade to Professional →
+                  </a>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={openFeedback}
+              className="rb-account-menu-item"
+              role="menuitem"
+            >
+              Send feedback
+            </button>
+            <button
+              type="button"
+              onClick={signOut}
+              disabled={signingOut}
+              className="rb-account-menu-item rb-account-menu-item-danger"
+              role="menuitem"
+            >
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -2565,16 +2837,28 @@ export default function App() {
 
             <div className="rb-header-right">
               <nav id="rb-nav" className={`rb-nav${mobileNavOpen ? ' rb-nav-open' : ''}`} aria-label="Main">
-                {NAV_LINKS.map((link) => (
+                {/* Desktop band shows only the slimmed primary set; the mobile
+                    dropdown (this same nav element, when open) shows the full
+                    list so nothing becomes unreachable on a small screen. */}
+                {(mobileNavOpen ? NAV_LINKS : DESKTOP_NAV_LINKS).map((link) => (
                   <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer">
                     {link.label}
                   </a>
                 ))}
-                <button type="button" onClick={openFeedback} className="rb-nav-feedback-btn">
-                  Send feedback
-                </button>
-                {/* Account control inside the mobile dropdown only; hidden on desktop via CSS. */}
-                {renderMobileAccount()}
+                {/* Send feedback and the mobile account block belong to the
+                    mobile dropdown only. On desktop, feedback lives in the
+                    account menu and the account control sits in the header row,
+                    so these must not render into the visible desktop nav band.
+                    Gating on mobileNavOpen keeps them out of the DOM entirely
+                    on desktop rather than relying on CSS to hide them. */}
+                {mobileNavOpen && (
+                  <>
+                    <button type="button" onClick={openFeedback} className="rb-nav-feedback-btn">
+                      Send feedback
+                    </button>
+                    {renderMobileAccount()}
+                  </>
+                )}
               </nav>
 
               {/* Account control in the header row on desktop; hidden ≤940px via CSS. */}
@@ -2603,16 +2887,25 @@ export default function App() {
               </button>
             ))}
           </div>
-          <ul className="rb-fw-list" aria-label="Frameworks applied" aria-live="polite">
-            <li className="rb-fw-label">Frameworks</li>
-            {JURISDICTIONS[jurisdiction].frameworks.map((fw, i) => (
-              <li key={fw.name} className="rb-fw" data-tone={frameworkTone(i)}>
-                <a href={fw.url} target="_blank" rel="noopener noreferrer" className="rb-fw-link">
-                  {fw.name}
-                </a>
-              </li>
-            ))}
-          </ul>
+
+          {/* Frameworks now collapse behind a disclosure to reclaim the second
+              header band. Expanding reveals the chip list with its verifying
+              links. aria-live on the list keeps the announcement of a
+              jurisdiction change for screen-reader users. */}
+          <details className="rb-fw-details">
+            <summary className="rb-fw-summary" aria-label={`Show the ${frameworkCount} frameworks applied for ${JURISDICTIONS[jurisdiction].label}`}>
+              <strong>{frameworkCount}</strong> {JURISDICTIONS[jurisdiction].short} frameworks
+            </summary>
+            <ul className="rb-fw-list" aria-label="Frameworks applied" aria-live="polite">
+              {JURISDICTIONS[jurisdiction].frameworks.map((fw, i) => (
+                <li key={fw.name} className="rb-fw" data-tone={frameworkTone(i)}>
+                  <a href={fw.url} target="_blank" rel="noopener noreferrer" className="rb-fw-link">
+                    {fw.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </details>
         </div>
       </header>
 
