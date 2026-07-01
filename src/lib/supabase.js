@@ -11,9 +11,20 @@ import { useState, useEffect } from 'react'
 
 // In Vite, environment variables exposed to the browser must be prefixed
 // with VITE_. They are read at build time and inlined into the bundle.
+//
+// flowType: 'pkce' is required here — AuthGate.jsx expects a ?code= param
+// on the redirect URL and calls exchangeCodeForSession() to consume it.
+// Without this explicit setting, the client flow type is not guaranteed
+// to match, magic links return tokens in the URL hash instead of a code
+// param, and the exchange in AuthGate never runs.
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  {
+    auth: {
+      flowType: 'pkce'
+    }
+  }
 )
 
 // React hook for components that need the current session.
